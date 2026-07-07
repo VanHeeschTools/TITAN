@@ -1,4 +1,4 @@
-## TITAN — Tumor Immunopeptidomics Target ANnotation
+## TITAN - Tumor Immunopeptidomics Target ANnotation
 ## Shiny app for prioritising ncORF-derived peptide candidates
 ##
 ## Usage:
@@ -42,7 +42,7 @@ biotypes <- sort(unique(orf_table$orf_biotype_single))
 # SCORING SYSTEM
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Previous scoring system (v1) — kept for reference:
+# Previous scoring system (v1) - kept for reference:
 # WEIGHT_META_V1 <- list(
 #   list(id="w_pct_samples",  label="% samples (expr.)",       dir="+", balanced=18, pancancer=20, specific=15),
 #   list(id="w_expr_level",   label="Median expression level",  dir="+", balanced=12, pancancer=14, specific=10),
@@ -151,8 +151,8 @@ spec_badge_html <- function(tumor_only, tumor_enriched) {
 biotype_badge_html <- function(biotype) {
   col <- unname(BIOTYPE_COLORS[biotype])
   if (is.na(col)) col <- "#95A5A6"
-  sprintf('<span class="titan-badge titan-badge-biotype" style="background:%s22;color:%s;border:1px solid %s55;">%s</span>',
-          col, col, col, biotype)
+  sprintf('<span class="titan-badge titan-badge-biotype" style="background:%s22;color:#111111;border:1px solid %s55;">%s</span>',
+          col, col, biotype)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ render_protein_seq_html <- function(seq, pep_list, pep_info = list()) {
     i0 <- (b - 1L) * BLOCK + 1L
     i1 <- min(b * BLOCK, n_chars)
 
-    # Sequence row — use RLE to group runs of same peptide into one span
+    # Sequence row - use RLE to group runs of same peptide into one span
     cov_range <- coverage[i0:i1]
     seq_range <- seq_v[i0:i1]
     r_len  <- rle(cov_range)$lengths
@@ -312,7 +312,7 @@ render_protein_seq_html <- function(seq, pep_list, pep_info = list()) {
       sprintf('<code class="seq-legend-badge" style="background:%s22;color:%s;border:1px solid %s55;">%s</code>',
               col, col, col, pep_list[[pi]])
     }, character(1)), collapse = " ")
-    sprintf('<div class="seq-legend"><span class="text-muted small me-2">%d MS peptide%s — hover to see MS data:</span>%s</div>',
+    sprintf('<div class="seq-legend"><span class="text-muted small me-2">%d MS peptide%s - hover to see MS data:</span>%s</div>',
             length(pep_list), if (length(pep_list) > 1L) "s" else "", badges)
   } else {
     '<p class="text-muted small mb-1">No MS peptides identified for this ORF.</p>'
@@ -555,17 +555,17 @@ ui <- page_navbar(
                  "A named R list with the following elements:"),
           tags$ul(class = "small text-muted ps-3",
             tags$li(tags$code("$orf_table"),
-                    " — data.frame of ncORF candidates with annotation columns"),
+                    " - data.frame of ncORF candidates with annotation columns"),
             tags$li(tags$code("$ribo_ppm_samples"),
-                    " — numeric matrix (ORFs × samples); rownames = orf_id"),
+                    " - numeric matrix (ORFs × samples); rownames = orf_id"),
             tags$li(tags$code("$ribo_sample_meta"),
-                    " — data.frame with ", tags$code("sample_id"),
+                    " - data.frame with ", tags$code("sample_id"),
                     " and ", tags$code("condition"), " columns"),
             tags$li(tags$code("$rna_tpm_mat"),
-                    " — optional matrix (genes × RNA-seq samples); rownames = gene_id ",
+                    " - optional matrix (genes × RNA-seq samples); rownames = gene_id ",
                     tags$em("without version suffix")),
             tags$li(tags$code("$prepared_on"),
-                    " — optional POSIXct timestamp")
+                    " - optional POSIXct timestamp")
           ),
           hr(class = "my-2"),
           tags$p(class = "titan-section-label", "MS peptides file"),
@@ -594,6 +594,30 @@ ui <- page_navbar(
     conditionalPanel(
       condition = "input.main_nav === 'Prioritisation'",
       scoring_sidebar_ui()
+    ),
+
+    # Package versions: About
+    conditionalPanel(
+      condition = "input.main_nav === 'About'",
+      card(
+        card_header(tags$span(icon("box-open"), " Package versions"), class = "fw-semibold"),
+        card_body(
+          class = "px-2 pt-1 pb-2",
+          tags$ul(
+            class = "list-unstyled mb-0 small",
+            lapply(
+              c("shiny", "bslib", "DT", "plotly",
+                "dplyr", "tidyr", "stringr", "ggplot2", "shinyWidgets"),
+              function(pkg) {
+                tags$li(class = "d-flex justify-content-between py-1 border-bottom",
+                  tags$code(pkg),
+                  tags$span(class = "text-muted", as.character(packageVersion(pkg)))
+                )
+              }
+            )
+          )
+        )
+      )
     ),
 
     # ORF selector: ORF Detail
@@ -643,7 +667,7 @@ ui <- page_navbar(
                       accept = ".rds", buttonLabel = "Browse…",
                       placeholder = "titan_orf_table.rds"),
             div(class = "d-flex align-items-center gap-2 mb-3",
-                tags$span(class = "text-muted small", "— or —"),
+                tags$span(class = "text-muted small", "- or —"),
                 actionButton("load_demo_rds", "Load demo dataset",
                              icon = icon("flask"), class = "btn-sm btn-outline-primary")),
             uiOutput("data_load_status")
@@ -658,7 +682,7 @@ ui <- page_navbar(
                       buttonLabel = "Browse…",
                       placeholder = "peptides.csv / .tsv"),
             div(class = "d-flex align-items-center gap-2 mb-3",
-                tags$span(class = "text-muted small", "— or —"),
+                tags$span(class = "text-muted small", "- or —"),
                 actionButton("load_demo_ms", "Load demo peptides",
                              icon = icon("flask"), class = "btn-sm btn-outline-primary")),
             uiOutput("ms_load_status"),
@@ -810,7 +834,7 @@ ui <- page_navbar(
     "About", icon = icon("circle-question"),
     card(
       card_body(
-        tags$h4("TITAN — Tumor Immunopeptidomics Target ANnotation"),
+        tags$h4("TITAN - Tumor Immunopeptidomics Target ANnotation"),
         tags$p("TITAN integrates ribo-seq, RNA-seq, and external databases to prioritise",
                " non-canonical ORF-derived peptide candidates for cancer immunotherapy."),
         tags$hr(),
@@ -826,7 +850,7 @@ ui <- page_navbar(
         tags$hr(),
         tags$h6("Scoring dimensions"),
         tags$ul(lapply(WEIGHT_META, function(m) {
-          tags$li(tags$b(m$label), " — ", m$hint, tags$span(class="text-muted small ms-1", paste0("(", m$group, ")")))
+          tags$li(tags$b(m$label), " - ", m$hint, tags$span(class="text-muted small ms-1", paste0("(", m$group, ")")))
         })),
         tags$hr(),
         uiOutput("about_data_info")
@@ -878,7 +902,7 @@ server <- function(input, output, session) {
   }, {
     md <- safe_matched_data()
     if (is.null(md) || nrow(md) == 0L) {
-      # server = FALSE for empty choices — server = TRUE with character(0) sends a
+      # server = FALSE for empty choices - server = TRUE with character(0) sends a
       # malformed AJAX response that triggers "Cannot read properties of undefined"
       updateSelectizeInput(session, "detail_orf_id", choices = character(0), server = FALSE)
       return()
@@ -1019,7 +1043,7 @@ server <- function(input, output, session) {
       div(
         class = "mt-4 text-center text-success",
         icon("circle-check", class = "fa-2x"),
-        tags$p(class = "mt-2 mb-0 fw-semibold", "Running — use the tabs above to explore.")
+        tags$p(class = "mt-2 mb-0 fw-semibold", "Running - use the tabs above to explore.")
       )
     } else {
       # Show which piece is still missing
@@ -1049,7 +1073,7 @@ server <- function(input, output, session) {
 
   observeEvent(input$ms_file, {
     req(input$ms_file)
-    # Sniff separator from first line — don't trust the file extension
+    # Sniff separator from first line - don't trust the file extension
     first_line <- tryCatch(readLines(input$ms_file$datapath, n = 1L, warn = FALSE),
                            error = function(e) "")
     n_tabs   <- nchar(first_line) - nchar(gsub("\t", "", first_line, fixed = TRUE))
@@ -1214,7 +1238,7 @@ server <- function(input, output, session) {
   # ── Scored/ranked data ──────────────────────────────────────────────────────
   prioritised_data <- reactive({
     req(matched_data())
-    # Collapse to one row per ORF — all scoring columns are ORF-level (same for
+    # Collapse to one row per ORF - all scoring columns are ORF-level (same for
     # all peptides sharing an orf_id), so first() is safe for those columns.
     per_orf <- matched_data() %>%
       group_by(orf_id) %>%
@@ -1410,7 +1434,7 @@ server <- function(input, output, session) {
           name = "No match", side = "negative",
           fillcolor = "rgba(189,195,199,0.55)", line = list(color = "#95A5A6", width = 1),
           box = list(visible = TRUE), points = FALSE,
-          hovertemplate = "%{x} — No match<br>log₁₀PPM: %{y:.2f}<extra></extra>"
+          hovertemplate = "%{x} - No match<br>log₁₀PPM: %{y:.2f}<extra></extra>"
         )
       matched_bios <- intersect(bios, unique(d_yes$orf_biotype_single))
       for (bio in matched_bios) {
@@ -1424,7 +1448,7 @@ server <- function(input, output, session) {
           showlegend = TRUE, side = "positive",
           fillcolor = paste0(col, "99"), line = list(color = col, width = 1.5),
           box = list(visible = TRUE), points = FALSE,
-          hovertemplate = "%{x} — matched<br>log₁₀PPM: %{y:.2f}<extra></extra>"
+          hovertemplate = "%{x} - matched<br>log₁₀PPM: %{y:.2f}<extra></extra>"
         )
       }
     }
@@ -1622,8 +1646,7 @@ server <- function(input, output, session) {
         div(
           tags$p(class = "prio-detail-overline", "Candidate detail"),
           tags$p(class = "prio-detail-gene", row$gene_name,
-                 tags$span(class = "ms-2 badge bg-secondary fw-normal",
-                            style = "font-size:10px;", row$orf_biotype_single)),
+                 HTML(paste0(' ', biotype_badge_html(row$orf_biotype_single)))),
           tags$p(class = "prio-detail-pep text-muted small mb-0",
                  paste0(row$n_peptides, " peptide",
                         if (row$n_peptides == 1L) "" else "s", ": ",
@@ -1800,25 +1823,25 @@ server <- function(input, output, session) {
     req(nrow(detail_orf()) > 0)
     o <- detail_orf()
     rows <- list(
-      c("Translation — % samples (PPM ≥ threshold)",   fmt1(o$target_translation_pct_samples)),
-      c("Translation — median PPM",                     fmt2(o$target_translation_median_PPM)),
-      c("Translation — max PPM",                        fmt2(o$target_translation_max_PPM)),
-      c("Translation — median psites",                  fmt2(o$target_translation_median_psites)),
-      c("Expression — % samples (TPM ≥ threshold)",     fmt1(o$target_expression_pct_samples)),
-      c("Expression — median TPM",                      fmt2(o$target_expression_median_TPM)),
-      c("GTEx — DE sig. in all tissues",                bool_fmt(o$GTEX_DE_sig_in_all)),
-      c("GTEx — tumor-enriched",                       bool_fmt(o$GTEX_tumor_enriched)),
-      c("GTEx — tumor-only",                           bool_fmt(o$GTEX_tumor_only)),
-      c("GTEx — median TPM (all samples)",              fmt2(o$GTEX_median_TPM)),
-      c("GTEx — max tissue median TPM",                 fmt2(o$GTEX_max_median_TPM)),
-      c("TCGA — % tumor samples (TPM ≥ 1)",           fmt1(o$TCGA_tumor_pct_samples)),
-      c("TCGA — median TPM (tumor)",                   fmt2(o$TCGA_tumor_median_TPM)),
-      c("TCGA — % normal samples (TPM ≥ 1)",           fmt1(o$TCGA_normal_pct_samples)),
-      c("TCGA — median TPM (normal)",                   fmt2(o$TCGA_normal_median_TPM)),
-      c("Ribocrypt — % primary samples (PPM ≥ 1)",     fmt1(o$ribocrypt_primary_pct_samples)),
-      c("Ribocrypt — median PPM (primary)",             fmt2(o$ribocrypt_primary_median_PPM)),
-      c("Ribocrypt — % cell-line samples (PPM ≥ 1)",   fmt1(o$`ribocrypt_cell-line_pct_samples`)),
-      c("Ribocrypt — median PPM (cell lines)",          fmt2(o$`ribocrypt_cell-line_median_PPM`))
+      c("Translation - % samples (PPM ≥ threshold)",   fmt1(o$target_translation_pct_samples)),
+      c("Translation - median PPM",                     fmt2(o$target_translation_median_PPM)),
+      c("Translation - max PPM",                        fmt2(o$target_translation_max_PPM)),
+      c("Translation - median psites",                  fmt2(o$target_translation_median_psites)),
+      c("Expression - % samples (TPM ≥ threshold)",     fmt1(o$target_expression_pct_samples)),
+      c("Expression - median TPM",                      fmt2(o$target_expression_median_TPM)),
+      c("GTEx - DE sig. in all tissues",                bool_fmt(o$GTEX_DE_sig_in_all)),
+      c("GTEx - tumor-enriched",                       bool_fmt(o$GTEX_tumor_enriched)),
+      c("GTEx - tumor-only",                           bool_fmt(o$GTEX_tumor_only)),
+      c("GTEx - median TPM (all samples)",              fmt2(o$GTEX_median_TPM)),
+      c("GTEx - max tissue median TPM",                 fmt2(o$GTEX_max_median_TPM)),
+      c("TCGA - % tumor samples (TPM ≥ 1)",           fmt1(o$TCGA_tumor_pct_samples)),
+      c("TCGA - median TPM (tumor)",                   fmt2(o$TCGA_tumor_median_TPM)),
+      c("TCGA - % normal samples (TPM ≥ 1)",           fmt1(o$TCGA_normal_pct_samples)),
+      c("TCGA - median TPM (normal)",                   fmt2(o$TCGA_normal_median_TPM)),
+      c("Ribocrypt - % primary samples (PPM ≥ 1)",     fmt1(o$ribocrypt_primary_pct_samples)),
+      c("Ribocrypt - median PPM (primary)",             fmt2(o$ribocrypt_primary_median_PPM)),
+      c("Ribocrypt - % cell-line samples (PPM ≥ 1)",   fmt1(o$`ribocrypt_cell-line_pct_samples`)),
+      c("Ribocrypt - median PPM (cell lines)",          fmt2(o$`ribocrypt_cell-line_median_PPM`))
     )
     df <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
     colnames(df) <- c("Metric", "Value")
@@ -1841,7 +1864,9 @@ server <- function(input, output, session) {
       condition = ribo_sm$condition[match(names(ppm_vals), ribo_sm$sample_id)]
     )
     plot_ly(df, x = ~sample, y = ~ppm, type = "bar",
-            color = "#28646E", 
+            marker = list(color = "#317A87",
+                          line = list(color =  "#28646E", 
+                                      width = 1.5)),
             text = ~round(ppm, 2), textposition = "outside",
             hovertemplate = "%{x}<br>PPM: %{y:.2f}<extra></extra>") %>%
       layout(
@@ -1895,7 +1920,7 @@ server <- function(input, output, session) {
                            paste0("Data prepared: ", format(d$prepared_on, "%Y-%m-%d %H:%M")))
     if (!is.null(d) && is.null(tryCatch(rna_tpm_rv(), error = function(e) NULL)))
       lines[[2]] <- tags$p(class = "text-warning small",
-                           "Note: RNA-seq TPM matrix not found — re-run prepare_titan_inputs.R to enable dynamic TPM threshold filtering.")
+                           "Note: RNA-seq TPM matrix not found - re-run prepare_titan_inputs.R to enable dynamic TPM threshold filtering.")
     do.call(tagList, lines)
   })
 }
