@@ -1,0 +1,31 @@
+column,description,source_analysis,source_data,notes
+target_expression_num_samples,# target samples TPM >= 1,rnaseq quantification,rnaseq,might need flexibility so such metrics can be stratified by group
+target_expression_pct_samples,% target samples TPM >= 1,rnaseq quantification,rnaseq,might need flexibility so such metrics can be stratified by group
+target_expression_median_TPM,median TPM across target samples,rnaseq quantification,rnaseq,might need flexibility so such metrics can be stratified by group
+target_expression_max_TPM,max TPM across target samples,rnaseq quantification,rnaseq,
+GTEX_DE_sig_in_all,logFC > 2 and adj pval < 0.01 in all comparisons (tumor-specific),GTEx DE,rnaseq,
+GTEX_tumor_enriched,q3 of all GTEx combined < 1 TPM (tumor-enriched),GTEx DE,rnaseq,
+GTEX_tumor_only,q3 of each GTEx tissue < 1 TPM (tumor-specific),GTEx DE,rnaseq,
+GTEX_median_TPM,median TPM across all GTEx samples,GTEx DE,rnaseq,
+GTEX_max_median_TPM,max tissue median in GTEx,GTEx DE,rnaseq,
+TCGA_tumor_num_samples,# TCGA tumor samples TPM >= 1,TCGA quantification,rnaseq,
+TCGA_tumor_pct_samples,% TCGA tumor samples TPM >= 1,TCGA quantification,rnaseq,
+TCGA_tumor_median_TPM,median TPM across TCGA tumor samples,TCGA quantification,rnaseq,
+TCGA_tumor_max_TPM,max TPM across TCGA tumor samples,TCGA quantification,rnaseq,
+TCGA_normal_num_samples,# TCGA normal/peritumoral samples TPM >= 1,TCGA quantification,rnaseq,
+TCGA_normal_pct_samples,% TCGA normal/peritumoral samples TPM >= 1,TCGA quantification,rnaseq,
+TCGA_normal_median_TPM,median TPM across TCGA normal/peritumoral samples,TCGA quantification,rnaseq,
+TCGA_normal_max_TPM,max TPM across TCGA normal/peritumoral samples,TCGA quantification,rnaseq,
+target_translation_num_samples,# target samples PPM >= 1,ribo-seq quantification,ribo-seq,target tumor samples
+target_translation_pct_samples,% target samples PPM >= 1,ribo-seq quantification,ribo-seq,target tumor samples
+target_translation_median_PPM,median PPM across target samples,ribo-seq quantification,ribo-seq,
+target_translation_max_PPM,max PPM across target samples,ribo-seq quantification,ribo-seq,
+target_translation_median_psites,median peptide sites per ncORF across target samples,ribo-seq quantification,ribo-seq,
+ribocrypt_primary_num_samples,# ribocrypt primary tissue samples PPM >= 1,ribocrypt quantification,ribo-seq,normal tissue comparator
+ribocrypt_primary_pct_samples,% ribocrypt primary tissue samples PPM >= 1,ribocrypt quantification,ribo-seq,normal tissue comparator
+ribocrypt_primary_median_PPM,median PPM across ribocrypt primary tissue samples,ribocrypt quantification,ribo-seq,
+ribocrypt_primary_max_PPM,max PPM across ribocrypt primary tissue samples,ribocrypt quantification,ribo-seq,
+ribocrypt_cell-line_num_samples,# ribocrypt cell-line samples PPM >= 1,ribocrypt quantification,ribo-seq,cell-line translatability
+ribocrypt_cell-line_pct_samples,% ribocrypt cell-line samples PPM >= 1,ribocrypt quantification,ribo-seq,cell-line translatability
+ribocrypt_cell-line_median_PPM,median PPM across ribocrypt cell-line samples,ribocrypt quantification,ribo-seq,
+ribocrypt_cell-line_max_PPM,max PPM across ribocrypt cell-line samples,ribocrypt quantification,ribo-seq,

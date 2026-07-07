@@ -1,0 +1,677 @@
+/* TITAN — custom styles
+   Design inspired by clean, minimal aesthetic: thin borders, subtle backgrounds,
+   clear typographic hierarchy, color-coded score/specificity indicators.
+*/
+
+/* ── House-style colour tokens ───────────────────────────────────────────── */
+:root {
+  --clr-primary:        #28646E;  /* teal — nav, headers, badges, key text   */
+  --clr-primary-dark:   #1D4D56;  /* deeper teal for strong emphasis          */
+  --clr-success:        #00A555;  /* green — positive indicators, score high  */
+  --clr-success-dark:   #007A3E;  /* dark green — badge text, dir-plus label  */
+  --clr-success-bg:     #D0F0E3;  /* pale green — tumour-only badge fill      */
+  --clr-warning:        #D4850A;  /* amber — mid scores, modified indicator   */
+  --clr-danger:         #C0392B;  /* red — low scores, penalty labels         */
+  --clr-bg-sidebar:     #EFF7F8;  /* lightest teal tint — sidebar background  */
+  --clr-bg-card:        #F0F7F9;  /* very light teal — card headers, panels   */
+  --clr-border:         #DAE9EC;  /* teal-tinted border — cards, tiles        */
+  --clr-border-subtle:  #C8D8DC;  /* slightly deeper border — sidebar, tables */
+  --clr-hover:          #E0F0F3;  /* teal tint — row hover, selected row      */
+  --clr-hover-deep:     #C0E2E8;  /* deeper hover — selected+hover row        */
+
+  /* bslib spacer (unchanged) */
+  --bslib-spacer: .5rem;
+  --bslib-mb-spacer: var(--bslib-spacer, .5rem);
+
+  /* Bootstrap 5 token overrides */
+  --bs-body-font-size:     1rem;
+  --bs-btn-font-size:      .7rem;
+  --bs-dropdown-font-size: .6rem;
+  --bs-dropdown-spacer:    .1rem;
+  --bs-btn-font-size:      .7rem;
+}
+
+/* ── Base changes ─────────────────────────────────────────────────────── */
+body {
+   font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased;
+   font-size: 12px; line-height: 1.4; color: #212529;
+}
+
+.navbar-brand span { letter-spacing: .03em; }
+
+.btn {
+    --bs-btn-padding-x: .5em;
+    --bs-btn-padding-y: .5em;
+    --bs-btn-font-family: ;
+    --bs-btn-font-size: .75rem;
+    --bs-btn-font-weight: 500;
+    --bs-btn-line-height: 1;
+}
+
+.dropdown-menu {
+    --bs-dropdown-font-size: .6rem;
+}
+.form-control {
+    font-size: .75rem;
+    line-height: 1;
+    padding: 0rem .75rem;
+}
+
+.progress, .progress-stacked {
+    margin: .5rem 0rem;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  border: 1px solid var(--clr-border);
+}
+
+.card-header {
+  border-radius: 8px 8px 0 0 !important;
+  padding: .5rem .9rem;
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--clr-primary);
+  background: var(--clr-bg-card);
+  border-bottom: 1px solid var(--clr-border);
+}
+
+.badge {
+    --bs-badge-padding-x: .5em;
+    --bs-badge-padding-y: .5em;
+    --bs-badge-font-size: 1em;
+    --bs-badge-font-weight: 500;
+    --bs-badge-color: #fff;
+    --bs-badge-border-radius: 10em;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+.bslib-sidebar-layout > .sidebar {
+  background: var(--clr-bg-sidebar) !important;
+  border-right: 1px solid var(--clr-border-subtle);
+}
+.sidebar .card { border: none; background: transparent; box-shadow: none; }
+.sidebar .card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--clr-border-subtle);
+  padding: .4rem .75rem;
+  color: #34495E;
+}
+.sidebar .card-body {
+   padding: .5rem .5rem .25rem;
+   margin-top: .5rem;
+   margin-bottom: .5rem; }
+
+/* Section label pattern (uppercase, spaced, small) */
+.titan-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #6C757D;
+  margin: 10px 0 5px;
+  display: block;
+}
+
+/* ── Value boxes — modern minimal (white + coloured top accent) ──────────── */
+.bslib-value-box {
+  border-radius: 8px;
+  border: 1px solid var(--clr-border) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04) !important;
+  background: #fff !important;
+  overflow: hidden;
+}
+
+/* Strip bslib / Bootstrap theme fills */
+.bslib-value-box.bg-primary,
+.bslib-value-box.bg-secondary,
+.bslib-value-box.bg-success,
+.bslib-value-box.bg-info,
+.bslib-value-box.bg-warning,
+.bslib-value-box.bg-danger   { background: #fff !important; color: inherit !important; }
+.bslib-value-box .card-body  { background: transparent !important; }
+
+/* 3 px coloured top accent — mirrors the preset button left-border motif */
+.bslib-value-box.bg-primary   { border-top: 3px solid var(--clr-primary)   !important; }
+.bslib-value-box.bg-secondary { border-top: 3px solid #8FA8AF              !important; }
+.bslib-value-box.bg-success   { border-top: 3px solid var(--clr-success)   !important; }
+.bslib-value-box.bg-info      { border-top: 3px solid #26A9C5              !important; }
+.bslib-value-box.bg-warning   { border-top: 3px solid var(--clr-warning)   !important; }
+.bslib-value-box.bg-danger    { border-top: 3px solid var(--clr-danger)    !important; }
+
+/* Typography */
+.bslib-value-box .value-box-title {
+  font-size: 9px !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #8A9CAA;
+  margin: 0 0 3px;
+}
+.bslib-value-box .value-box-value {
+  font-size: 1.3rem !important;
+  font-weight: 700;
+  color: var(--clr-primary-dark);
+  line-height: 1.1;
+}
+
+/* Icon: ghost watermark — absolutely positioned so it never crowds the text */
+.bslib-value-box .card-body { position: relative !important; }
+.bslib-value-box .value-box-area { position: relative; z-index: 1; flex: 1 1 auto !important; min-width: 0; }
+.bslib-value-box .value-box-showcase {
+  position: absolute !important;
+  right: 8px; bottom: 6px;
+  width: auto !important; min-width: 0 !important;
+  pointer-events: none; z-index: 0;
+  color: var(--clr-primary);
+  opacity: .12;
+  font-size: 2.2rem;
+}
+
+/* ── DT tables ───────────────────────────────────────────────────────────── */
+table.dataTable thead th {
+  background: var(--clr-bg-card);
+  color: var(--clr-primary);
+  font-size: .76rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--clr-border-subtle) !important;
+  white-space: nowrap;
+}
+table.dataTable.compact tbody td { font-size: .77rem; padding: 4px 8px !important; }
+table.dataTable.stripe tbody tr.odd { background: #F3FAFB; }
+table.dataTable.hover tbody tr:hover { background: var(--clr-hover) !important; cursor: pointer; }
+
+/* Priority table — selected row */
+table.dataTable tbody tr.selected td { background: var(--clr-hover) !important; }
+table.dataTable tbody tr.selected:hover td { background: var(--clr-hover-deep) !important; }
+
+/* DT toolbar */
+div.dt-buttons .dt-button {
+  font-size: .73rem !important;
+  padding: .2rem .5rem !important;
+  border-radius: 4px !important;
+  margin-right: 3px;
+  border: 1px solid var(--clr-border-subtle) !important;
+}
+div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
+
+/* Monospace peptide column */
+.titan-pep-cell { font-family: 'Fira Code', 'Courier New', monospace !important; font-size: 11px; color: #555; }
+
+/* ── Compact inputs ──────────────────────────────────────────────────────── */
+/* Shiny adds mb-3 as a class directly on .shiny-input-container */
+.shiny-input-container.mb-3  { margin-bottom: 5px !important; }
+/* Also target the mb-3 wrapper div that fileInput places inside itself */
+.shiny-input-container > .mb-3 { margin-bottom: 0 !important; }
+
+/* Labels */
+.shiny-input-container label,
+.shiny-input-container .form-label {
+  margin-bottom: 0px !important;
+  line-height: 1.3;
+  color: #495057;
+}
+/* Text / number inputs — exclude readonly (file picker display) */
+.shiny-input-container .form-control:not([readonly]),
+.shiny-input-container .form-select {
+  font-size: 10px !important;
+  padding: 2px 7px !important;
+  height: auto !important;
+}
+
+/* ── File upload ─────────────────────────────────────────────────────────── */
+/* Browse button (bslib / Bootstrap 5 renders as label.input-group-text.btn) */
+.input-group-text.btn,
+.btn-file {
+  background: var(--clr-primary) !important;
+  border-color: var(--clr-primary) !important;
+  color: white !important;
+  padding: 3px 9px !important;
+}
+
+.shiny-input-select { font-size: .7rem !important; padding: 2px 7px !important; height: auto !important; }
+.shiny-bound-input { font-size: .75rem !important; }
+
+.selectize-dropdown, .selectize-input, .selectize-input input { font-size: 10px !important; }
+
+/* Sidebar p and hr */
+.sidebar p  { margin-bottom: 1px !important;}
+.sidebar hr { margin-top: 2px !important; margin-bottom: 2px !important; }
+
+/* ── Pill badges (global) ────────────────────────────────────────────────── */
+.badge.rounded-pill { font-size: .71rem; padding: .3em .7em; font-weight: 500; }
+
+/* ── ORF Detail tab ──────────────────────────────────────────────────────── */
+#detail_protein_seq {
+  font-family: 'Fira Code', monospace;
+  font-size: .76rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--clr-bg-card);
+  border: 1px solid var(--clr-border);
+  border-radius: 6px;
+  padding: .6rem .8rem;
+  max-height: 220px;
+  overflow-y: auto;
+  color: #2C3E50;
+}
+#detail_metric_table table { font-size: .81rem; }
+#detail_metric_table td:first-child { color: #5D6D7E; font-weight: 500; width: 60%; }
+#detail_metric_table td:last-child  { font-weight: 600; color: var(--clr-primary); }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRIORITISATION TAB
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Priority score bar ──────────────────────────────────────────────────── */
+.titan-score-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 110px;
+}
+.titan-score-track {
+  flex: 1;
+  height: 5px;
+  background: #EAECEF;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.titan-score-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .4s ease;
+}
+.titan-score-val {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 30px;
+  text-align: right;
+  color: #212529;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Specificity badges ──────────────────────────────────────────────────── */
+.titan-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.titan-badge-specific { background: var(--clr-success-bg); color: var(--clr-success-dark); }
+.titan-badge-enriched { background: #FAEEDA; color: #854F0B; }
+.titan-badge-other    { background: #F5E7E7; color: #A32D2D; }
+.titan-badge-biotype  { font-size: 11px; font-weight: 500; white-space: nowrap; }
+
+/* ── Preset buttons ──────────────────────────────────────────────────────── */
+.prio-preset-btn {
+  display: block;
+  width: 100%;
+  text-align: left !important;
+  padding: 8px 10px 8px 12px !important;
+  margin-bottom: 5px !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--clr-border-subtle) !important;
+  background: #FFFFFF !important;
+  color: #212529 !important;
+  font-size: 12px !important;
+  line-height: 1.4;
+  transition: background .15s, border-color .15s;
+  cursor: pointer;
+}
+.prio-preset-btn:hover { background: var(--clr-bg-sidebar) !important; }
+.prio-preset-btn.active-preset { background: var(--clr-bg-sidebar) !important; }
+.prio-preset-name  { display: block; font-weight: 600; font-size: 12px; }
+.prio-preset-desc  { display: block; font-size: 10px; color: #6C757D; margin-top: 1px; font-weight: 400; }
+
+/* ── Weight sliders in sidebar ───────────────────────────────────────────── */
+.weight-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #6C757D;
+  margin: 10px 0 5px;
+  display: block;
+}
+.weight-hint {
+  display: block;
+  font-size: 9px;
+  color: #8A9CAA;
+  font-weight: 400;
+  margin-top: 0;
+  line-height: 1.3;
+}
+/* ── Bipolar (centre-fill) slider ─────────────────────────────────────────── */
+/* Hide ionRangeSlider's left-to-handle fill; we draw our own */
+.titan-bipolar-slider .irs-bar,
+.titan-bipolar-slider .irs-bar--single {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Centre tick marker */
+.titan-bipolar-center {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: #B0C4CC;
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Colour fill from centre outward */
+.titan-bipolar-fill {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 0;
+  background: var(--clr-success);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 1;
+  transition: left .08s ease, width .08s ease;
+}
+.titan-bipolar-fill.pos { background: var(--clr-success); }
+.titan-bipolar-fill.neg { background: var(--clr-danger);  }
+
+.weight-total-box {
+  background: var(--clr-bg-card);
+  border: 1px solid var(--clr-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #6C757D;
+}
+.weight-total-box strong { color: #212529; }
+
+/* ── Prioritisation detail panel ─────────────────────────────────────────── */
+.prio-detail-outer {
+  border: 1px solid var(--clr-border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  background: #FFFFFF;
+  margin-top: 14px;
+}
+.prio-detail-overline {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #6C757D;
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+.prio-detail-gene {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 2px;
+  color: #212529;
+}
+.prio-detail-pep {
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #6C757D;
+}
+.prio-detail-score-badge {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--clr-primary);
+}
+.prio-detail-score-label {
+  font-size: 11px;
+  color: #6C757D;
+  font-weight: 400;
+}
+
+/* Metric tile grid */
+.prio-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+.prio-metric-tile {
+  background: var(--clr-bg-card);
+  border: 1px solid var(--clr-border);
+  border-radius: 6px;
+  padding: 9px 11px;
+}
+.prio-metric-label {
+  font-size: 10px;
+  color: #6C757D;
+  font-weight: 500;
+  margin: 0 0 3px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.prio-metric-value {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--clr-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Dimension contribution bars ─────────────────────────────────────────── */
+.prio-dim-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #6C757D;
+  margin: 0 0 10px;
+}
+.prio-dim-row { margin-bottom: 9px; }
+.prio-dim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+.prio-dim-label {
+  font-size: 11px;
+  color: #495057;
+}
+.prio-dim-contribution {
+  font-size: 11px;
+  font-weight: 600;
+  color: #212529;
+  font-variant-numeric: tabular-nums;
+}
+.prio-dim-track {
+  height: 4px;
+  background: #EAECEF;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.prio-dim-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width .3s ease;
+}
+
+/* ── Prioritisation page header ──────────────────────────────────────────── */
+.prio-page-overline {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #6C757D;
+  font-weight: 600;
+  margin: 0;
+}
+.prio-page-title {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 2px 0 4px;
+  color: #212529;
+}
+.prio-page-subtitle {
+  font-size: 12px;
+  color: #6C757D;
+  margin: 0;
+}
+
+/* ── Tab content top spacing ──────────────────────────────────────────────── */
+.tab-content > .tab-pane.active > *:first-child {
+  margin-top: 1.25rem;
+}
+
+/* ── Data tab content wrapper ────────────────────────────────────────────── */
+.titan-data-wrap {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+.titan-data-wrap .titan-hero {
+  margin-bottom: 1.5rem;
+}
+
+/* ── Data tab hero ───────────────────────────────────────────────────────── */
+.titan-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, #EFF7F8 0%, #FFFFFF 60%);
+  border: 1px solid var(--clr-border);
+  border-radius: 10px;
+}
+.titan-hero-logo {
+  height: 72px;
+  width: auto;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 6px rgba(40,100,110,.15));
+}
+.titan-hero-text { line-height: 1.2; }
+.titan-hero-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--clr-primary);
+  margin: 0 0 4px;
+  letter-spacing: -.01em;
+}
+.titan-hero-subtitle {
+  font-size: .95rem;
+  color: #5D6D7E;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* ── Ranked candidates card — fill viewport ──────────────────────────────── */
+/*
+ * Elements above the card:
+ *   navbar ~48px + tab margin 20px + value-box row ~88px + gaps ~14px = ~170px
+ * Add card border/shadow clearance → use 185px.
+ */
+.titan-priority-card {
+  height: calc(100vh - 185px);
+  display: flex;
+  flex-direction: column;
+}
+.titan-priority-body {
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* Make DataTables' scroll wrapper fill the card body */
+.titan-priority-body .dataTables_wrapper {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.titan-priority-body .dataTables_scroll {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.titan-priority-body .dataTables_scrollBody {
+  flex: 1 1 auto;
+  overflow-y: auto !important;
+  max-height: none !important;
+}
+
+/* ── Protein sequence viewer ─────────────────────────────────────────────── */
+.seq-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.seq-legend-badge {
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.titan-protein-seq {
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.85;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 340px;
+  background: var(--clr-bg-card);
+  border: 1px solid var(--clr-border);
+  border-radius: 6px;
+  padding: .55rem .75rem;
+  color: #2C3E50;
+}
+.seq-pos {
+  color: #8A9CAA;
+  font-size: 10px;
+  user-select: none;
+}
+
+/* ── Peptide hover popover ───────────────────────────────────────────────── */
+.pep-popover .popover-header {
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  background: var(--clr-bg-card);
+  border-bottom: 1px solid var(--clr-border);
+  padding: 5px 10px;
+}
+.pep-popover .popover-body {
+  font-size: 11px;
+  padding: 6px 10px;
+  max-width: 320px;
+}
+.pep-tt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.pep-tt-key {
+  color: #6C757D;
+  font-weight: 500;
+  padding-right: 10px;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.pep-tt-val {
+  color: #212529;
+  word-break: break-word;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .bslib-value-box .value-box-value { font-size: 1.4rem; }
+  .sidebar { font-size: .8rem; }
+  .prio-metric-grid { grid-template-columns: repeat(2, 1fr); }
+}
