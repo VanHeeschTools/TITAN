@@ -34,7 +34,7 @@ BiocManager::install(c("tximport", "matrixStats"))
 
 ---
 
-## Step 1 — Prepare the app data (HPC)
+## Step 1: Prepare the app data (HPC)
 
 Edit the `CONFIGURATION` block at the top of `scripts/prepare_titan_inputs.R` to point to your project paths:
 
