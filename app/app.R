@@ -39,6 +39,238 @@ n_rna_samples  <- if (!is.null(rna_tpm_mat)) ncol(rna_tpm_mat) else nrow(app_dat
 biotypes <- sort(unique(orf_table$orf_biotype_single))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# COLOUR PALETTES  (GTEx tissue groups / TCGA studies)
+# ─────────────────────────────────────────────────────────────────────────────
+
+.darken_hex <- function(hex, amount = 0.35) {
+  # Darken hex color(s) by reducing HLS lightness (no colorspace dependency).
+  sapply(hex, function(h) {
+    v  <- col2rgb(h) / 255
+    r  <- v[1]; g <- v[2]; b <- v[3]
+    mx <- max(r, g, b); mn <- min(r, g, b); d <- mx - mn
+    l  <- (mx + mn) / 2
+    s  <- if (d == 0) 0 else d / (1 - abs(2 * l - 1))
+    hh <- if (d == 0)    0
+          else if (mx == r) 60 * (((g - b) / d) %% 6)
+          else if (mx == g) 60 * ((b - r) / d + 2)
+          else              60 * ((r - g) / d + 4)
+    l2 <- max(0, l * (1 - amount))
+    cv <- (1 - abs(2 * l2 - 1)) * s
+    xv <- cv * (1 - abs((hh / 60) %% 2 - 1))
+    m  <- l2 - cv / 2
+    rn <- if      (hh < 60)  c(cv, xv,  0)
+          else if (hh < 120) c(xv, cv,  0)
+          else if (hh < 180) c(0,  cv,  xv)
+          else if (hh < 240) c(0,  xv,  cv)
+          else if (hh < 300) c(xv, 0,   cv)
+          else               c(cv, 0,   xv)
+    out <- pmin(1, pmax(0, rn + m))
+    rgb(out[1], out[2], out[3])
+  }, USE.NAMES = FALSE)
+}
+
+gtex_colors <- c(
+  Adipose         = "#D1B9A5",
+  Adrenal_Gland   = "#BB80B1",
+  Artery          = "#FFB08E",
+  Bladder         = "#B6A1D9",
+  Brain           = "#90AFD4",
+  Breast          = "#F0C2B5",
+  Cervix          = "#E5B4AE",
+  Colon           = "#FACC78",
+  Esophagus       = "#FE9C62",
+  Fallopian_Tube  = "#DBA6A8",
+  Heart           = "#EC8675",
+  Kidney          = "#BCB9EB",
+  Liver           = "#ECF3A8",
+  Lung            = "#DCD4AD",
+  Muscle          = "#C4D4AC",
+  Nerve           = "#BEBBB8",
+  Ovary           = "#D099A1",
+  Pancreas        = "#CFEBB7",
+  Pituitary       = "#CD9EC7",
+  Prostate        = "#B390CD",
+  Salivary        = "#C794C0",
+  Skin            = "#E1CEA9",
+  Small_Intestine = "#FBBA70",
+  Spleen          = "#F1E496",
+  Stomach         = "#FDAC6A",
+  Thyroid         = "#DFBCDD",
+  Uterus          = "#C68B9B",
+  Vagina          = "#BB7D94",
+  Whole_Blood     = "#DD6661"
+)
+
+gtex_colors_subtissue <- data.frame(
+  Tissue = c(
+    "Brain_Amygdala", "Brain_Anterior_cingulate_cortex_BA24", "Brain_Caudate_basal_ganglia",
+    "Brain_Cerebellar_Hemisphere", "Brain_Cerebellum", "Brain_Cortex", "Brain_Frontal_Cortex_BA9",
+    "Brain_Hippocampus", "Brain_Hypothalamus", "Brain_Nucleus_accumbens_basal_ganglia",
+    "Brain_Putamen_basal_ganglia", "Brain_Spinal_cord_cervical_c_1", "Brain_Substantia_nigra",
+    "Esophagus_Gastroesophageal_Junction", "Esophagus_Mucosa", "Esophagus_Muscularis",
+    "Stomach", "Small_Intestine_Terminal_Ileum",
+    "Colon_Sigmoid", "Colon_Transverse",
+    "Spleen", "Liver", "Pancreas", "Lung",
+    "Artery_Aorta", "Artery_Coronary", "Artery_Tibial",
+    "Heart_Atrial_Appendage", "Heart_Left_Ventricle",
+    "Whole_Blood",
+    "Kidney_Cortex", "Kidney_Medulla",
+    "Bladder", "Prostate", "Nerve_Tibial", "Muscle_Skeletal", "Breast_Mammary_Tissue",
+    "Cervix_Ectocervix", "Cervix_Endocervix",
+    "Fallopian_Tube", "Ovary", "Uterus", "Vagina", "Adrenal_Gland",
+    "Minor_Salivary_Gland", "Pituitary", "Thyroid",
+    "Adipose_Subcutaneous", "Adipose_Visceral_Omentum",
+    "Skin_Not_Sun_Exposed_Suprapubic", "Skin_Sun_Exposed_Lower_leg"
+  ),
+  Group = c(
+    rep("Brain", 13),
+    rep("Esophagus", 3),
+    "Stomach", "Small_Intestine",
+    "Colon", "Colon",
+    "Spleen", "Liver", "Pancreas", "Lung",
+    rep("Artery", 3),
+    "Heart", "Heart",
+    "Whole_Blood",
+    "Kidney", "Kidney",
+    "Bladder", "Prostate", "Nerve", "Muscle", "Breast",
+    "Cervix", "Cervix",
+    "Fallopian_Tube", "Ovary", "Uterus", "Vagina", "Adrenal_Gland",
+    "Salivary", "Pituitary", "Thyroid",
+    "Adipose", "Adipose",
+    "Skin", "Skin"
+  ),
+  ColorHex = c(
+    "#90AFD4", "#88A6CC", "#819DC5", "#7994BD", "#7994BD", "#718BB5", "#6A82AE",
+    "#627AA6", "#5B719F", "#536897", "#4B5F8F", "#445688", "#3C4D80",
+    "#FE9C62", "#FE945F", "#FF8C5B",
+    "#FDAC6A", "#FBBA70",
+    "#FACC78", "#FBC374",
+    "#F1E496", "#ECF3A8", "#CFEBB7", "#DCD4AD",
+    "#FFB08E", "#FAA588", "#F59B81",
+    "#EC8675", "#E77B6E",
+    "#DD6661",
+    "#BCB9EB", "#BAB1E5",
+    "#B6A1D9", "#B390CD", "#BEBBB8", "#C4D4AC", "#F0C2B5",
+    "#EBBBB2", "#E5B4AE",
+    "#DBA6A8", "#D099A1", "#C68B9B", "#BB7D94", "#BB80B1",
+    "#C794C0", "#CD9EC7", "#DFBCDD",
+    "#CDB599", "#D1B9A5",
+    "#E1CEA9", "#ECCBA8"
+  ),
+  stringsAsFactors = FALSE
+)
+
+# TCGA study base ("normal") colors: GTEx group rep or sub-tissue alternate for collisions.
+# Collisions with only 1 sub-tissue shade share a color: ACC=PCPG, CHOL=LIHC, LUAD=LUSC, UCEC=UCS.
+# KIRC=KICH (Kidney_Cortex); KIRP uses Kidney_Medulla. Brain resolved via gradient extremes.
+tcga_colors_normal <- c(
+  ACC  = "#BB80B1",   # Adrenal_Gland group rep  (= PCPG, 1 shade)
+  BLCA = "#B6A1D9",
+  BRCA = "#F0C2B5",
+  CESC = "#E5B4AE",
+  CHOL = "#ECF3A8",   # Liver group rep  (= LIHC, 1 shade)
+  COAD = "#FACC78",   # Colon_Sigmoid
+  DLBC = "#B8AADC",   # custom -- lymphoid, no GTEx match
+  ESCA = "#FE9C62",
+  GBM  = "#90AFD4",   # Brain_Amygdala (lightest end of gradient)
+  HNSC = "#E8C0A0",   # custom -- head/neck, no GTEx match
+  KICH = "#BCB9EB",   # Kidney_Cortex  (= KIRC, only 2 shades for 3 studies)
+  KIRC = "#BCB9EB",   # Kidney_Cortex
+  KIRP = "#BAB1E5",   # Kidney_Medulla
+  LAML = "#DD6661",
+  LGG  = "#3C4D80",   # Brain_Substantia_nigra (darkest end of gradient)
+  LIHC = "#ECF3A8",   # Liver group rep  (= CHOL, 1 shade)
+  LUAD = "#DCD4AD",   # Lung group rep  (= LUSC, 1 shade)
+  LUSC = "#DCD4AD",
+  MESO = "#A8C4B0",   # custom -- pleura, no GTEx match
+  OV   = "#D099A1",
+  PAAD = "#CFEBB7",
+  PCPG = "#BB80B1",   # Adrenal_Gland group rep  (= ACC, 1 shade)
+  PRAD = "#B390CD",
+  READ = "#FBC374",   # Colon_Transverse
+  SARC = "#C4D4AC",
+  SKCM = "#E1CEA9",
+  STAD = "#FDAC6A",
+  TGCT = "#C4D4E4",   # custom -- testicular, no GTEx match
+  THCA = "#DFBCDD",
+  THYM = "#D4C0D4",   # custom -- thymic, no GTEx match
+  UCEC = "#C68B9B",   # Uterus group rep  (= UCS, 1 shade)
+  UCS  = "#C68B9B"
+)
+
+tcga_colors_tumor <- setNames(
+  .darken_hex(tcga_colors_normal, amount = 0.35),
+  names(tcga_colors_normal)
+)
+
+# Ribocrypt sample → GTEx-palette color (GroupColorHex or custom where noted)
+rc_color_map <- c(
+  # Primary tissues
+  hepatocyte_liver              = "#ECF3A8",  # Liver
+  HSPC_blood                    = "#DD6661",  # Whole_Blood
+  huvec_Umbilical               = "#FFB08E",  # Artery (vascular endothelium)
+  Myoblast_muscle               = "#C4D4AC",  # Muscle
+  primary_brain                 = "#90AFD4",  # Brain
+  primary_corneal_eye           = "#AAAAAA",  # no GTEx match
+  primary_fibroblast_connective = "#E1CEA9",  # Skin (dermal fibroblasts)
+  primary_heart                 = "#EC8675",  # Heart
+  primary_kidney                = "#BCB9EB",  # Kidney
+  primary_liver                 = "#ECF3A8",  # Liver
+  primary_muscle                = "#C4D4AC",  # Muscle
+  primary_skin                  = "#E1CEA9",  # Skin
+  # Cell lines
+  A549_lung                     = "#DCD4AD",  # Lung
+  BJ_skin                       = "#E1CEA9",  # Skin
+  Calu3_lung                    = "#DCD4AD",  # Lung
+  CTC_blood                     = "#DD6661",  # Whole_Blood
+  embryonic_brain               = "#90AFD4",  # Brain
+  ENDOC_pancreas                = "#CFEBB7",  # Pancreas
+  fibroblast_heart              = "#EC8675",  # Heart
+  fibroblast_skin               = "#E1CEA9",  # Skin
+  glioblastoma_brain            = "#90AFD4",  # Brain
+  H1_embryonic                  = "#AAAAAA",  # no tissue equivalent (hESC)
+  H1299_lung                    = "#DCD4AD",  # Lung
+  H9_embryonic                  = "#AAAAAA",  # no tissue equivalent (hESC)
+  HAP1_bone                     = "#DD6661",  # Whole_Blood (bone-marrow CML origin)
+  HBEC_lung                     = "#DCD4AD",  # Lung
+  HCT116_colon                  = "#FACC78",  # Colon
+  HDF_skin                      = "#E1CEA9",  # Skin
+  HEK293_kidney                 = "#BCB9EB",  # Kidney
+  HeLa_ovary                    = "#D099A1",  # Ovary
+  HepG2_liver                   = "#ECF3A8",  # Liver
+  hesc_embryonic                = "#AAAAAA",  # no tissue equivalent (hESC)
+  HFF_skin                      = "#E1CEA9",  # Skin
+  hTERT_RPE1_eye                = "#AAAAAA",  # no GTEx match (RPE)
+  Huh7_liver                    = "#ECF3A8",  # Liver
+  IMR90_lung                    = "#DCD4AD",  # Lung
+  iPSC_brain                    = "#90AFD4",  # Brain
+  iPSC_none                     = "#AAAAAA",  # no tissue specified
+  K562_bone                     = "#DD6661",  # Whole_Blood (bone-marrow CML origin)
+  LCL_blood                     = "#DD6661",  # Whole_Blood
+  LN299_brain                   = "#90AFD4",  # Brain
+  LN308_brain                   = "#90AFD4",  # Brain
+  MCF10A_breast                 = "#F0C2B5",  # Breast
+  MCF7_breast                   = "#F0C2B5",  # Breast
+  MDA_breast                    = "#F0C2B5",  # Breast
+  MM1_blood                     = "#DD6661",  # Whole_Blood
+  MOLM13_blood                  = "#DD6661",  # Whole_Blood
+  MRC5_lung                     = "#DCD4AD",  # Lung
+  Neuroblast_brain              = "#90AFD4",  # Brain
+  NPC_throat                    = "#FE9C62",  # Esophagus (upper aerodigestive)
+  PANC1_pancreas                = "#CFEBB7",  # Pancreas
+  PC3_prostate                  = "#B390CD",  # Prostate
+  RD_muscle                     = "#E4E6AB",  # custom (sarcoma)
+  SHSY5Y_brain                  = "#90AFD4",  # Brain
+  SUM159_breast                 = "#F0C2B5",  # Breast
+  THP1_blood                    = "#DD6661",  # Whole_Blood
+  U2392_blood                   = "#DD6661",  # Whole_Blood
+  U2OS_bone                     = "#C4D4AC",  # Muscle (mesenchymal/bone)
+  UOK262_kidney                 = "#BCB9EB",  # Kidney
+  VSMC_muscle                   = "#F59B81",  # custom (Artery_Tibial, vascular SM)
+  Wilmstumor_kidney             = "#BCB9EB"   # Kidney
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SCORING SYSTEM
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -155,6 +387,83 @@ biotype_badge_html <- function(biotype) {
           col, col, biotype)
 }
 
+make_expand_cell <- function(count, items_str) {
+  items <- trimws(strsplit(as.character(items_str), ",\\s*")[[1]])
+  if (length(items) <= 1L) return(as.character(count))
+  items_html <- paste(items, collapse = "<br>")
+  paste0(
+    count,
+    ' <span class="titan-expand-btn">+</span>',
+    '<div class="titan-xcontent" style="display:none">',
+    items_html,
+    '</div>'
+  )
+}
+
+make_peptide_cell <- function(items_str) {
+  items <- trimws(strsplit(as.character(items_str), ",\\s*")[[1]])
+  mono  <- function(s) sprintf('<span class="font-monospace" style="font-size:10px">%s</span>', s)
+  if (length(items) <= 1L) return(mono(items[1]))
+  n_more   <- length(items) - 1L
+  all_html <- paste(vapply(items[-1], mono, character(1)), collapse = "<br>")
+  paste0(
+    mono(items[1]),
+    ' <span class="titan-pep-more">and ', n_more, ' more...</span>',
+    '<span class="titan-pep-less" style="display:none">less</span>',
+    '<div class="titan-pep-extra" style="display:none; margin-top:3px; line-height:1.7">',
+    all_html,
+    '</div>'
+  )
+}
+
+make_child_html <- function(orfs_df) {
+  # Returns concatenated <tr class="titan-child-row"> strings, one per ORF.
+  # orfs_df: non-best ORF rows from the group (already sorted desc by score),
+  # with orf_biotype_single and matched_peptides restored from the grouping key.
+  # Cell layout must match prio_table_df() transmute column order (27 cols total):
+  # Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4) Location(5) Spec(6) Score(7)
+  # Transl%(8) TranslPPM(9) Expr%(10) ExprTPM(11) GTEx(12) TCGAT%(13) TCGATPM(14)
+  # TCGAN%(15) TCANPM(16) RCprim%(17) RCprimPPM(18) RCCL%(19) RCCLPPM(20)
+  # .biotype_sort(21) .spec_sort(22) .score_sort(23) .transl_sort(24) .expr_sort(25) .child_rows(26)
+  r2 <- function(x) if (is.na(x) || !is.finite(x)) "&mdash;" else sprintf("%.2f", x)
+  r1 <- function(x) if (is.na(x) || !is.finite(x)) "&mdash;" else sprintf("%.1f", x)
+  r3 <- function(x) if (is.na(x) || !is.finite(x)) "&mdash;" else sprintf("%.3f", x)
+  rows <- vapply(seq_len(nrow(orfs_df)), function(i) {
+    r <- orfs_df[i, ]
+    paste0(
+      '<tr class="titan-child-row">',
+      '<td class="dt-center titan-sel-col"></td>',
+      '<td></td>',
+      '<td>', biotype_badge_html(r$orf_biotype_single), '</td>',
+      '<td class="titan-pep-cell">', make_peptide_cell(r$matched_peptides), '</td>',
+      '<td><span class="font-monospace" style="font-size:10px;word-break:break-all">',
+        r$orf_id, '</span></td>',
+      '<td style="font-size:11px;white-space:nowrap">',
+        r$chr, ':', formatC(r$orf_start, format = "d", big.mark = ","),
+        '&ndash;', formatC(r$orf_end, format = "d", big.mark = ","),
+        ' ', r$strand, ' ', r$start_codon, '</td>',
+      '<td>', spec_badge_html(r$GTEX_tumor_only, r$GTEX_tumor_enriched), '</td>',
+      '<td>', score_bar_html(r$priority_score), '</td>',
+      '<td>', pct_bar_html(r$target_translation_pct_samples, "#28646E"), '</td>',
+      '<td style="font-size:12px">', r2(r$target_translation_median_PPM), '</td>',
+      '<td>', pct_bar_html(r$target_expression_pct_samples, "#7EB8BF"), '</td>',
+      '<td style="font-size:12px">', r2(r$target_expression_median_TPM), '</td>',
+      '<td style="font-size:12px">', r3(r$GTEX_max_median_TPM), '</td>',
+      '<td style="font-size:12px">', r1(r$TCGA_tumor_pct_samples), '</td>',
+      '<td style="font-size:12px">', r2(r$TCGA_tumor_median_TPM), '</td>',
+      '<td style="font-size:12px">', r1(r$TCGA_normal_pct_samples), '</td>',
+      '<td style="font-size:12px">', r2(r$TCGA_normal_median_TPM), '</td>',
+      '<td style="font-size:12px">', r1(r$ribocrypt_primary_pct_samples), '</td>',
+      '<td style="font-size:12px">', r2(r$ribocrypt_primary_median_PPM), '</td>',
+      '<td style="font-size:12px">', r1(r$`ribocrypt_cell-line_pct_samples`), '</td>',
+      '<td style="font-size:12px">', r2(r$`ribocrypt_cell-line_median_PPM`), '</td>',
+      '<td></td><td></td><td></td><td></td><td></td><td></td>',
+      '</tr>'
+    )
+  }, character(1))
+  paste(rows, collapse = "")
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FORMATTING HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -181,13 +490,18 @@ BIOTYPE_COLORS <- c(
 # ─────────────────────────────────────────────────────────────────────────────
 
 match_peptides <- function(peptides, orf_tbl) {
-  peptides <- unique(trimws(peptides))
-  peptides <- peptides[nchar(peptides) >= 8]
+  peptides  <- unique(trimws(peptides))
+  peptides  <- peptides[nchar(peptides) >= 8]
   if (length(peptides) == 0) return(NULL)
+  canonical <- c("ORF-annotated", "NC-variant")
   results <- lapply(peptides, function(pep) {
     hits <- which(str_detect(orf_tbl$protein_seq, fixed(pep)))
     if (length(hits) == 0) return(NULL)
-    orf_tbl[hits, ] %>% mutate(matched_peptide = pep)
+    matched <- orf_tbl[hits, , drop = FALSE] %>% mutate(matched_peptide = pep)
+    # Peptides matching a canonical biotype are not evidence for ncORFs
+    if (any(matched$orf_biotype_single %in% canonical))
+      matched <- matched[matched$orf_biotype_single %in% canonical, , drop = FALSE]
+    matched
   })
   bind_rows(results)
 }
@@ -778,10 +1092,12 @@ ui <- page_navbar(
           "Ranked candidates",
           tags$div(
             class = "d-flex gap-1",
-            downloadButton("dl_params",   "Export parameters",
+            downloadButton("dl_params",    "Export parameters",
                            class = "btn-sm btn-outline-primary"),
-            downloadButton("dl_priority", "Export ranked",
-                           class = "btn-sm btn-outline-primary")
+            downloadButton("dl_priority",  "Export ranked",
+                           class = "btn-sm btn-outline-primary"),
+            downloadButton("dl_selected",  "Export selection",
+                           class = "btn-sm btn-outline-success")
           )
         ),
         card_body(class = "p-0 titan-priority-body", DTOutput("tbl_priority"))
@@ -875,9 +1191,16 @@ server <- function(input, output, session) {
       tbl$gene_id_clean <- sub("\\..*", "", tbl$gene_id)
     tbl
   })
-  ribo_ppm_rv      <- reactive({ req(app_data_rv()); app_data_rv()$ribo_ppm_samples })
-  ribo_meta_rv     <- reactive({ req(app_data_rv()); app_data_rv()$ribo_sample_meta })
-  rna_tpm_rv       <- reactive({ req(app_data_rv()); app_data_rv()$rna_tpm_mat })
+  ribo_ppm_rv           <- reactive({ req(app_data_rv()); app_data_rv()$ribo_ppm_samples })
+  ribo_meta_rv          <- reactive({ req(app_data_rv()); app_data_rv()$ribo_sample_meta })
+  rna_tpm_rv            <- reactive({ req(app_data_rv()); app_data_rv()$rna_tpm_mat })
+  rna_meta_rv           <- reactive({ req(app_data_rv()); app_data_rv()$rna_sample_meta })
+  gtex_tpm_rv           <- reactive({ req(app_data_rv()); app_data_rv()$gtex_tpm_mat })
+  gtex_meta_rv          <- reactive({ req(app_data_rv()); app_data_rv()$gtex_sample_meta })
+  tcga_tpm_rv           <- reactive({ req(app_data_rv()); app_data_rv()$tcga_tpm_mat })
+  tcga_meta_rv          <- reactive({ req(app_data_rv()); app_data_rv()$tcga_sample_meta })
+  ribocrypt_mat_rv      <- reactive({ req(app_data_rv()); app_data_rv()$ribocrypt_mat })
+  ribocrypt_smeta_rv    <- reactive({ req(app_data_rv()); app_data_rv()$ribocrypt_sample_meta })
 
   # Update sidebar controls + ORF selector when data changes
   observeEvent(app_data_rv(), {
@@ -907,10 +1230,11 @@ server <- function(input, output, session) {
       updateSelectizeInput(session, "detail_orf_id", choices = character(0), server = FALSE)
       return()
     }
-    # Use spec-filtered priority table to restrict choices
+    # Use spec-filtered priority table to restrict choices.
+    # orf_ids holds all ORF IDs per group (best + co-identified child ORFs).
     ppd <- tryCatch(prio_table_df(), error = function(e) NULL)
     matched_ids <- if (!is.null(ppd) && nrow(ppd) > 0L) {
-      unique(ppd$.orf_id)
+      unique(trimws(unlist(strsplit(ppd$orf_ids, ",\\s*", perl = TRUE))))
     } else {
       unique(md$orf_id)
     }
@@ -1010,6 +1334,19 @@ server <- function(input, output, session) {
     req(ms_peptides(), orf_table_rv(), ms_meta())
     withProgress(message = "Matching peptides to ORFs…", value = 0.1, {
       hits <- match_peptides(ms_peptides(), orf_table_rv())
+      # For peptides that match an ORF-annotated (canonical) entry AND non-canonical
+      # entries, discard the non-canonical hits — they are canonical peptide evidence.
+      if (!is.null(hits) && nrow(hits) > 0L) {
+        hits <- hits %>%
+          group_by(matched_peptide) %>%
+          filter(
+            if (any(orf_biotype_single == "ORF-annotated", na.rm = TRUE))
+              orf_biotype_single == "ORF-annotated"
+            else
+              TRUE
+          ) %>%
+          ungroup()
+      }
       setProgress(0.85, detail = "Joining MS metadata…")
       result <- if (!is.null(hits) && nrow(hits) > 0L) {
         left_join(hits, ms_meta(), by = "matched_peptide")
@@ -1252,12 +1589,36 @@ server <- function(input, output, session) {
         matched_peptides = paste(sort(unique(matched_peptide)), collapse = ", "),
         .groups = "drop"
       )
-    message("[DEBUG] prioritised_data cols: ", paste(colnames(per_orf), collapse = ", "))
-    message("[DEBUG] GTEX_tissues_q3_gt1 in per_orf: ",
-            "GTEX_tissues_q3_gt1" %in% colnames(per_orf),
-            " non-NA: ", if ("GTEX_tissues_q3_gt1" %in% colnames(per_orf))
-              sum(!is.na(per_orf$GTEX_tissues_q3_gt1)) else "N/A")
     score_candidates(per_orf, current_weights()) %>%
+      arrange(desc(priority_score)) %>%
+      mutate(.row_id = row_number())
+  })
+
+  gene_prioritised_data <- reactive({
+    req(prioritised_data())
+
+    # Group by (gene, biotype, exact peptide set): ORFs that are identified by the
+    # same peptides collapse into one row; different peptide evidence = separate rows.
+    # prioritised_data() is already score-sorted desc, so group_orfs[1] = best ORF.
+    # group_modify strips grouping columns from group_orfs; they come back via key.
+    per_group <- prioritised_data() %>%
+      group_by(gene_id, orf_biotype_single, matched_peptides) %>%
+      group_modify(function(group_orfs, key) {
+        n_grp <- nrow(group_orfs)
+        child_html <- if (n_grp > 1L) {
+          child_orfs <- group_orfs[-1L, , drop = FALSE] %>%
+            mutate(orf_biotype_single = key$orf_biotype_single,
+                   matched_peptides   = key$matched_peptides)
+          make_child_html(child_orfs)
+        } else ""
+        group_orfs[1L, , drop = FALSE] %>%
+          mutate(.child_html = child_html,
+                 n_orfs      = n_grp,
+                 orf_ids     = paste(group_orfs$orf_id, collapse = ", "))
+      }) %>%
+      ungroup()
+
+    per_group %>%
       arrange(desc(priority_score)) %>%
       mutate(.row_id = row_number())
   })
@@ -1366,7 +1727,7 @@ server <- function(input, output, session) {
         y = ~log10(target_translation_median_PPM + 0.1),
         name = bio, legendgroup = bio,
         showlegend = !(bio %in% unique(as.character(d_yes$orf_biotype_single))),
-        marker = list(color = col, size = 4, opacity = 0.3, line = list(width = 0)),
+        marker = list(color = col, size = 5, opacity = 0.3, line = list(width = 0)),
         text = ~tip, hovertemplate = "%{text}<extra></extra>"
       )
     }
@@ -1478,20 +1839,20 @@ server <- function(input, output, session) {
 
   # ── Prioritisation stats ─────────────────────────────────────────────────────
   output$stat_prio_total <- renderText({
-    req(prioritised_data()); formatC(nrow(prioritised_data()), big.mark = ",")
+    req(gene_prioritised_data()); formatC(nrow(gene_prioritised_data()), big.mark = ",")
   })
   output$stat_prio_pep <- renderText({
-    req(prioritised_data()); formatC(sum(prioritised_data()$n_peptides), big.mark = ",")
+    req(gene_prioritised_data()); formatC(sum(gene_prioritised_data()$n_peptides), big.mark = ",")
   })
   output$stat_prio_top <- renderText({
-    req(prioritised_data())
-    sprintf("%.1f / 100", max(prioritised_data()$priority_score, na.rm = TRUE))
+    req(gene_prioritised_data())
+    sprintf("%.1f / 100", max(gene_prioritised_data()$priority_score, na.rm = TRUE))
   })
 
-  # ── Priority table ───────────────────────────────────────────────────────────
+  # ── Priority table (gene-centric) ────────────────────────────────────────────
   prio_table_df <- reactive({
-    req(prioritised_data())
-    df <- prioritised_data() %>%
+    req(gene_prioritised_data())
+    df <- gene_prioritised_data() %>%
       mutate(
         spec_category = case_when(
           GTEX_tumor_only %in% TRUE     ~ "Tumor-only",
@@ -1511,67 +1872,179 @@ server <- function(input, output, session) {
     df <- filter(df,
                  spec_category %in% sel_spec,
                  replace_na(GTEX_max_median_TPM, 0) <= gtex_cutoff)
+    # DT column layout (0-based, after dropping .orf_id + orf_ids before DT):
+    # Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4) Location(5)
+    # Specificity(6) Score(7) Transl.%(8) Transl.PPM(9) Expr.%(10) Expr.TPM(11)
+    # GTEx(12) TCGA T%(13) TCGA T TPM(14) TCGA N%(15) TCGA N TPM(16)
+    # RC prim%(17) RC prim PPM(18) RC CL%(19) RC CL PPM(20)
+    # .biotype_sort(21) .spec_sort(22) .score_sort(23) .transl_sort(24) .expr_sort(25) .child_rows(26)
     df %>% transmute(
-      `#`           = .row_id,
-      Gene          = gene_name,
-      Peptides      = matched_peptides,
-      `N pep`       = n_peptides,
-      `ORF info`      = paste0(protein_length, " aa · ",
-                             chr, ":", formatC(orf_start, format = "d", big.mark = ","),
-                             "–", formatC(orf_end, format = "d", big.mark = ","),
-                             " · ", start_codon),
-      Biotype       = biotype_html,
-      Specificity   = spec_html,
-      Score         = score_html,
-      `Transl. %`   = transl_html,
-      `Transl. PPM` = round(target_translation_median_PPM,  2),
-      `Expr. %`     = expr_html,
-      `Expr. TPM`   = round(target_expression_median_TPM,   2),
-      `GTEx max TPM`= round(GTEX_max_median_TPM,            3),
-      `TCGA T%`     = round(TCGA_tumor_pct_samples,         1),
-      `TCGA T TPM`  = round(TCGA_tumor_median_TPM,          2),
-      `TCGA N%`     = round(TCGA_normal_pct_samples,        1),
-      `TCGA N TPM`  = round(TCGA_normal_median_TPM,         2),
-      `RC prim %`   = round(ribocrypt_primary_pct_samples,  1),
-      `RC prim PPM` = round(ribocrypt_primary_median_PPM,   2),
-      `RC CL %`     = round(`ribocrypt_cell-line_pct_samples`, 1),
-      `RC CL PPM`   = round(`ribocrypt_cell-line_median_PPM`,  2),
-      .orf_id       = orf_id,
-      .biotype_sort = orf_biotype_single,
-      .spec_sort    = spec_category,
-      .score_sort   = round(priority_score, 2),
-      .transl_sort  = round(target_translation_pct_samples, 1),
-      .expr_sort    = round(target_expression_pct_samples,  1)
+      Sel            = sprintf('<input type="checkbox" class="titan-row-checkbox" data-rowid="%d">', .row_id),
+      Gene           = {
+        link <- sprintf('<span class="titan-gene-link fw-semibold fst-italic" data-rowid="%d">%s</span>',
+                        .row_id, gene_name)
+        expand <- ifelse(n_orfs > 1L,
+                         ' <span class="titan-expand-btn titan-orf-expand">+</span>', "")
+        paste0(link, expand)
+      },
+      `ORF-biotype`  = biotype_html,
+      Peptides       = vapply(matched_peptides, make_peptide_cell, character(1)),
+      `ORF-id`       = sprintf('<span class="font-monospace" style="font-size:10px;word-break:break-all">%s</span>',
+                               orf_id),
+      Location       = sprintf('%s:%s&ndash;%s %s %s',
+                               chr,
+                               formatC(orf_start, format = "d", big.mark = ","),
+                               formatC(orf_end,   format = "d", big.mark = ","),
+                               strand, start_codon),
+      Specificity    = spec_html,
+      Score          = score_html,
+      `Transl. %`    = transl_html,
+      `Transl. PPM`  = round(target_translation_median_PPM,  2),
+      `Expr. %`      = expr_html,
+      `Expr. TPM`    = round(target_expression_median_TPM,   2),
+      `GTEx max TPM` = round(GTEX_max_median_TPM,            3),
+      `TCGA T%`      = round(TCGA_tumor_pct_samples,         1),
+      `TCGA T TPM`   = round(TCGA_tumor_median_TPM,          2),
+      `TCGA N%`      = round(TCGA_normal_pct_samples,        1),
+      `TCGA N TPM`   = round(TCGA_normal_median_TPM,         2),
+      `RC prim %`    = round(ribocrypt_primary_pct_samples,  1),
+      `RC prim PPM`  = round(ribocrypt_primary_median_PPM,   2),
+      `RC CL %`      = round(`ribocrypt_cell-line_pct_samples`, 1),
+      `RC CL PPM`    = round(`ribocrypt_cell-line_median_PPM`,  2),
+      .biotype_sort  = orf_biotype_single,
+      .spec_sort     = spec_category,
+      .score_sort    = round(priority_score, 2),
+      .transl_sort   = round(target_translation_pct_samples, 1),
+      .expr_sort     = round(target_expression_pct_samples,  1),
+      .child_rows    = .child_html,
+      .orf_id        = orf_id,        # kept for ORF Detail dropdown population
+      orf_ids        = orf_ids        # kept for ORF Detail dropdown population
     )
   })
 
   output$tbl_priority <- renderDT({
-    df <- prio_table_df() %>% select(-`.orf_id`)
-    # Visible cols: #(0) N pep(1) Peptides(2) Gene(3) Location(4) Biotype(5)
-    #               Specificity(6) Score(7) Transl.%(8) … metrics … → 21 visible
-    # Hidden sort cols: .biotype_sort .spec_sort .score_sort .transl_sort .expr_sort
-    n_vis <- ncol(df) - 5L
+    df <- prio_table_df() %>% select(-`.orf_id`, -`orf_ids`)
+    # Col layout (0-based): Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4)
+    # Location(5) Specificity(6) Score(7) Transl.%(8) PPM(9) Expr.%(10) TPM(11)
+    # GTEx(12) TCGAT%(13) TCGATPM(14) TCGAN%(15) TCANPM(16) RCprim%(17) RCprimPPM(18)
+    # RCCL%(19) RCCLPPM(20) .biotype_sort(21) .spec_sort(22) .score_sort(23)
+    # .transl_sort(24) .expr_sort(25) .child_rows(26)
+    n_vis <- ncol(df) - 6L   # 6 hidden cols: 5 sort + .child_rows
     datatable(
       df,
       escape    = FALSE,
       rownames  = FALSE,
-      selection = "single",
+      selection = "none",
       class     = "compact hover",
+      callback  = JS("
+        // Off -> re-add with namespace to avoid stacking on re-render.
+        $('#tbl_priority').off('.titanprio');
+        $(document).off('.titanpriohdr');
+
+        // Track SELECTED row IDs (starts empty = all unchecked by default).
+        window.titanPrioSel = new Set();
+
+        // -- Gene link: flash + open candidate detail panel -----------------
+        $('#tbl_priority').on('click.titanprio', '.titan-gene-link', function(e) {
+          e.stopPropagation();
+          var $el = $(this);
+          $el.addClass('titan-gene-active');
+          setTimeout(function() { $el.removeClass('titan-gene-active'); }, 450);
+          var rid = parseInt($el.attr('data-rowid'));
+          if (!isNaN(rid))
+            Shiny.setInputValue('prio_gene_click', {rowid: rid, nonce: Math.random()}, {priority: 'event'});
+        });
+
+        // -- ORF expand: inject child rows as <tr> siblings -----------------
+        $('#tbl_priority').on('click.titanprio', '.titan-orf-expand', function(e) {
+          e.stopPropagation();
+          var $btn = $(this);
+          var $tr  = $btn.closest('tr');
+          var ch   = $.data($tr[0], 'child');
+          if (!ch) return;
+          if ($tr.hasClass('titan-orf-expanded')) {
+            $tr.nextUntil(':not(.titan-child-row)').remove();
+            $tr.removeClass('titan-orf-expanded');
+            $btn.text('+');
+          } else {
+            $('<tbody>' + ch + '</tbody>').children().insertAfter($tr);
+            $tr.addClass('titan-orf-expanded');
+            $btn.text('\\u2212');
+          }
+        });
+
+        // -- Peptide cell: and N more... / less toggle ----------------------
+        $('#tbl_priority').on('click.titanprio', '.titan-pep-more, .titan-pep-less', function(e) {
+          e.stopPropagation();
+          var $cell  = $(this).closest('td');
+          var $more  = $cell.find('.titan-pep-more');
+          var $less  = $cell.find('.titan-pep-less');
+          var $extra = $cell.find('.titan-pep-extra');
+          var open   = $extra.css('display') !== 'none';
+          $extra.css('display', open ? 'none' : '');
+          $more.css('display', open ? '' : 'none');
+          $less.css('display', open ? 'none' : '');
+        });
+
+        // -- Row checkbox: track selected rows ------------------------------
+        $('#tbl_priority').on('change.titanprio', '.titan-row-checkbox', function() {
+          var rid = parseInt($(this).data('rowid'));
+          this.checked ? window.titanPrioSel.add(rid) : window.titanPrioSel.delete(rid);
+          titanSyncHeader();
+          Shiny.setInputValue('prio_selected_rowids', Array.from(window.titanPrioSel), {priority: 'event'});
+        });
+
+        // -- Header checkbox: select/deselect current page ------------------
+        $(document).on('change.titanpriohdr', '#titan-hdr-cb', function() {
+          var ok = this.checked;
+          $('#tbl_priority tbody .titan-row-checkbox').each(function() {
+            var rid = parseInt($(this).data('rowid'));
+            $(this).prop('checked', ok);
+            ok ? window.titanPrioSel.add(rid) : window.titanPrioSel.delete(rid);
+          });
+          this.indeterminate = false;
+          Shiny.setInputValue('prio_selected_rowids', Array.from(window.titanPrioSel), {priority: 'event'});
+        });
+
+        function titanSyncHeader() {
+          var cbs = $('#tbl_priority tbody .titan-row-checkbox');
+          var n = cbs.length, nc = cbs.filter(':checked').length;
+          var h = document.getElementById('titan-hdr-cb');
+          if (!h) return;
+          h.checked = (nc === n && n > 0); h.indeterminate = (nc > 0 && nc < n);
+        }
+        window.titanSyncHeader = titanSyncHeader;
+      "),
       options   = list(
         pageLength = 20,
         dom        = "Bfrtip",
         scrollX        = TRUE,
         scrollY        = "1px",
         scrollCollapse = TRUE,
+        createdRow = JS("function(row, data, index) {
+          var ch = data[data.length - 1];
+          if (ch) $.data(row, 'child', ch);
+        }"),
+        headerCallback = JS("function(thead) {
+          $(thead).find('th:first').html('<input type=\"checkbox\" id=\"titan-hdr-cb\" style=\"cursor:pointer\" title=\"Select/deselect current page\">');
+        }"),
+        drawCallback = JS("function() {
+          var sel = window.titanPrioSel || new Set();
+          $('#tbl_priority tbody .titan-row-checkbox').each(function() {
+            $(this).prop('checked', sel.has(parseInt($(this).data('rowid'))));
+          });
+          if (window.titanSyncHeader) window.titanSyncHeader();
+        }"),
         columnDefs = list(
-          list(className = "dt-center",      targets = c(0L, 1L)),
-          list(className = "titan-pep-cell", targets = 2L),
-          list(visible = FALSE,              targets = seq(n_vis, n_vis + 4L)),
-          list(orderData = n_vis,            targets = 5L),      # Biotype
-          list(orderData = n_vis + 1L,       targets = 6L),      # Specificity
-          list(orderData = n_vis + 2L,       targets = 7L),      # Score
-          list(orderData = n_vis + 3L,       targets = 8L),      # Transl. %
-          list(orderData = n_vis + 4L,       targets = 10L)      # Expr. %
+          list(className = "dt-center titan-sel-col", targets = 0L),
+          list(className = "titan-pep-cell",          targets = 3L),
+          list(visible   = FALSE, targets = seq(n_vis, n_vis + 5L)),
+          list(orderData = n_vis,      targets = 2L),   # ORF-biotype
+          list(orderData = n_vis + 1L, targets = 6L),   # Specificity
+          list(orderData = n_vis + 2L, targets = 7L),   # Score
+          list(orderData = n_vis + 3L, targets = 8L),   # Transl. %
+          list(orderData = n_vis + 4L, targets = 10L),  # Expr. %
+          list(orderable = FALSE, targets = 0L)         # Sel not sortable
         ),
         lengthMenu = list(c(10, 20, 50), c("10", "20", "50"))
       )
@@ -1581,24 +2054,28 @@ server <- function(input, output, session) {
                   fontWeight = styleInterval(1, c("normal", "600")))
   }, server = TRUE)
 
-  # Pre-populate ORF Detail when a priority row is clicked (no auto-navigation)
-  observeEvent(input$tbl_priority_rows_selected, {
-    idx <- input$tbl_priority_rows_selected
-    if (length(idx)) {
-      oid <- isolate(prio_table_df())$.orf_id[idx]
-      if (length(oid) && !is.na(oid))
-        updateSelectizeInput(session, "detail_orf_id", selected = oid)
-    }
+  prio_row_id          <- reactiveVal(NULL)
+  prio_selected_rowids <- reactiveVal(integer(0))
+
+  # Gene name link clicked → open candidate detail panel
+  observeEvent(input$prio_gene_click, {
+    rid <- as.integer(input$prio_gene_click$rowid)
+    prio_row_id(rid)
+    # Also pre-populate the ORF Detail tab with the best ORF for this gene
+    gdata <- isolate(gene_prioritised_data())
+    row   <- filter(gdata, .row_id == rid)
+    if (nrow(row) > 0)
+      updateSelectizeInput(session, "detail_orf_id", selected = row$orf_id[1])
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
+  observeEvent(input$prio_selected_rowids, {
+    prio_selected_rowids(as.integer(input$prio_selected_rowids %||% integer(0)))
+  }, ignoreNULL = FALSE)
+
   selected_prio_row <- reactive({
-    req(input$tbl_priority_rows_selected)
-    idx <- input$tbl_priority_rows_selected
-    pd_disp <- prio_table_df()
-    req(nrow(pd_disp) >= idx)
-    row_id <- pd_disp$`#`[idx]
-    req(!is.na(row_id))
-    filter(prioritised_data(), .row_id == row_id)
+    rid <- prio_row_id()
+    req(!is.null(rid))
+    filter(gene_prioritised_data(), .row_id == rid)
   })
 
   output$priority_detail_panel <- renderUI({
@@ -1607,16 +2084,15 @@ server <- function(input, output, session) {
     w   <- current_weights()
 
     metrics <- list(
-      list("Priority score",        sprintf("%.1f / 100", row$priority_score)),
       list("% samples (expr.)",     fmt1(row$target_expression_pct_samples)),
       list("Median TPM",            fmt2(row$target_expression_median_TPM)),
       list("% samples (transl.)",   fmt1(row$target_translation_pct_samples)),
       list("Median PPM",            fmt2(row$target_translation_median_PPM)),
-      list("GTEx max median TPM",   fmt2(row$GTEX_max_median_TPM)),
-      list("TCGA tumor %",         fmt1(row$TCGA_tumor_pct_samples)),
+      list("GTEx max TPM",          fmt2(row$GTEX_max_median_TPM)),
+      list("TCGA tumor %",          fmt1(row$TCGA_tumor_pct_samples)),
       list("TCGA normal %",         fmt1(row$TCGA_normal_pct_samples)),
-      list("Ribocrypt primary %",   fmt1(row$ribocrypt_primary_pct_samples)),
-      list("Ribocrypt cell-line %", fmt1(row$`ribocrypt_cell-line_pct_samples`))
+      list("RC primary %",          fmt1(row$ribocrypt_primary_pct_samples)),
+      list("RC cell-line %",        fmt1(row$`ribocrypt_cell-line_pct_samples`))
     )
     tile_ui <- lapply(metrics, function(m) {
       tags$div(class = "prio-metric-tile",
@@ -1641,53 +2117,72 @@ server <- function(input, output, session) {
       )
     })
 
+    n_orfs_label <- paste0(
+      row$n_orfs, " ORF", if (isTRUE(row$n_orfs == 1L)) "" else "s", ": ",
+      row$orf_ids
+    )
+    n_pep_label <- paste0(
+      row$n_peptides, " peptide", if (isTRUE(row$n_peptides == 1L)) "" else "s", ": ",
+      row$matched_peptides
+    )
+
     div(class = "prio-detail-outer",
+      # ── Header ──────────────────────────────────────────────────────────────
       div(class = "d-flex justify-content-between align-items-start mb-2",
-        div(
+        div(class = "flex-grow-1 me-3",
           tags$p(class = "prio-detail-overline", "Candidate detail"),
           tags$p(class = "prio-detail-gene", row$gene_name,
                  HTML(paste0(' ', biotype_badge_html(row$orf_biotype_single)))),
-          tags$p(class = "prio-detail-pep text-muted small mb-0",
-                 paste0(row$n_peptides, " peptide",
-                        if (row$n_peptides == 1L) "" else "s", ": ",
-                        row$matched_peptides))
+          div(class = "d-flex align-items-center justify-content-between gap-2 mb-0",
+            tags$p(class = "prio-detail-orfs text-muted small mb-0",
+                   n_orfs_label),
+            HTML(spec_badge_html(row$GTEX_tumor_only, row$GTEX_tumor_enriched))
+          ),
+          tags$p(class = "prio-detail-pep text-muted small mb-0", n_pep_label)
         ),
-        div(class = "d-flex flex-column align-items-end gap-2",
+        div(class = "d-flex flex-column align-items-end gap-1 flex-shrink-0",
           actionButton("close_prio_detail", label = NULL, icon = icon("xmark"),
                        class = "btn-sm btn-outline-primary",
                        title = "Close detail panel"),
-          div(class = "text-end",
+          div(class = "text-end mt-1",
             tags$span(class = "prio-detail-score-badge",
                       sprintf("%.1f", row$priority_score)),
-            tags$span(class = "prio-detail-score-label", " / 100"),
-            tags$br(),
-            HTML(spec_badge_html(row$GTEX_tumor_only, row$GTEX_tumor_enriched))
+            tags$span(class = "prio-detail-score-label", " / 100")
           )
         )
       ),
+      # ── Summary metric tiles (9 tiles, one row) ───────────────────────────
       div(class = "prio-metric-grid", tile_ui),
-      {
-        tissues_str <- row$GTEX_tissues_q3_gt1
-        message("[DEBUG] priority_detail tissues_str: '", tissues_str, "'  class: ", class(tissues_str))
-        if (isTRUE(!is.na(tissues_str)) && isTRUE(nzchar(tissues_str))) {
-          pairs <- strsplit(tissues_str, "\\|")[[1]]
-          tissue_badges <- lapply(pairs, function(p) {
-            parts  <- strsplit(p, "=")[[1]]
-            tissue <- parts[1]
-            q3_val <- if (length(parts) >= 2L) suppressWarnings(as.numeric(parts[2])) else NA_real_
-            tt     <- if (!is.na(q3_val)) sprintf("%s: Q3 = %.2f TPM", gsub("_", " ", tissue), q3_val)
-                      else gsub("_", " ", tissue)
-            tags$span(class = "badge rounded-pill me-1 mb-1",
-                      style = "background-color:#C0392B; font-size:10px;",
-                      title = tt, gsub("_", " ", tissue))
-          })
-          div(class = "mt-2 mb-1",
-              tags$p(class = "text-muted small mb-1", tags$b("GTEx tissues Q3 > 1 TPM:")),
-              div(tissue_badges))
-        }
-      },
+      # ── Expression card ──────────────────────────────────────────────────
+      card(
+        class = "mt-2",
+        card_header(
+          div(class = "d-flex justify-content-between align-items-center",
+            tags$span("Expression"),
+            radioButtons("prio_expr_scale", NULL,
+                         choices = c("log(TPM+1)" = "log", "TPM" = "raw"),
+                         selected = "log", inline = TRUE)
+          )
+        ),
+        card_body(class = "p-1", plotlyOutput("plot_prio_expr", height = "260px"))
+      ),
+      # ── Translation card ─────────────────────────────────────────────────
+      card(
+        class = "mt-2",
+        card_header(
+          div(class = "d-flex justify-content-between align-items-center",
+            tags$span("Translation"),
+            radioButtons("prio_transl_scale", NULL,
+                         choices = c("log(PPM+1)" = "log", "PPM" = "raw"),
+                         selected = "log", inline = TRUE)
+          )
+        ),
+        card_body(class = "p-1", plotlyOutput("plot_prio_transl", height = "200px"))
+      ),
+      # ── Score profile + dimension contributions ───────────────────────────
       layout_columns(
         col_widths = c(5, 7),
+        class = "mt-2",
         card(
           card_header("Score profile"),
           card_body(class = "p-1", plotlyOutput("plot_radar", height = "220px"))
@@ -1701,7 +2196,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$close_prio_detail, {
-    dataTableProxy("tbl_priority") %>% selectRows(NULL)
+    prio_row_id(NULL)
   })
 
   output$plot_radar <- renderPlotly({
@@ -1743,11 +2238,318 @@ server <- function(input, output, session) {
       config(displayModeBar = FALSE)
   })
 
+  # ── Expression card: Target / GTEx / TCGA ─────────────────────────────────
+  output$plot_prio_expr <- renderPlotly({
+    req(nrow(selected_prio_row()) > 0)
+    row       <- selected_prio_row()
+    log_scale <- isTRUE((input$prio_expr_scale %||% "log") == "log")
+    y_label   <- if (log_scale) "log(TPM+1)" else "TPM"
+    y_ref     <- if (log_scale) log(2) else 1   # threshold at TPM = 1
+    gid       <- row$gene_id_clean
+
+    apply_scale <- function(x) if (log_scale) log(pmax(as.numeric(x), 0) + 1) else pmax(as.numeric(x), 0)
+
+    make_box_args <- function(fill_hex) list(
+      type = "box", boxpoints = "all", jitter = 0.35, pointpos = 0,
+      fillcolor    = paste0(fill_hex, "1F"),
+      line         = list(color = fill_hex, width = 1.5),
+      whiskerwidth = 0.5, showlegend = FALSE, hoveron = "boxes",
+      marker       = list(symbol = "circle-open", size = 5, opacity = 0.5, color = fill_hex)
+    )
+    no_data_plot <- function(x_title, msg) {
+      plot_ly(type = "scatter", mode = "markers", x = 0, y = 0,
+              marker = list(opacity = 0)) %>%
+        layout(xaxis = list(title = x_title, showticklabels = FALSE),
+               yaxis = list(title = ""),
+               annotations = list(list(
+                 text = msg, x = 0.5, y = 0.5,
+                 xref = "paper", yref = "paper", showarrow = FALSE,
+                 font = list(size = 10, color = "#6C757D"))))
+    }
+
+    # --- Plot 1: Target tumor (per-sample) ---
+    rna_mat  <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
+    rna_meta <- tryCatch(rna_meta_rv(), error = function(e) NULL)
+
+    if (!is.null(rna_mat) && isTRUE(gid %in% rownames(rna_mat))) {
+      tpm_raw <- as.numeric(rna_mat[gid, ])
+      grp_col <- if (!is.null(rna_meta)) {
+        label_col <- if ("condition"   %in% colnames(rna_meta)) rna_meta$condition
+                     else if ("tissue_type" %in% colnames(rna_meta)) rna_meta$tissue_type
+                     else rep("Tumor", nrow(rna_meta))
+        label_col[match(colnames(rna_mat), rna_meta$sample_id)]
+      } else rep("Tumor", length(tpm_raw))
+      grp_col[is.na(grp_col)] <- "Tumor"
+      df_t <- data.frame(g = grp_col, y = apply_scale(tpm_raw))
+      p1 <- do.call(plot_ly, c(list(df_t, x = ~g, y = ~y), make_box_args("#28646E"))) %>%
+        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
+               yaxis = list(title = y_label))
+    } else {
+      p1 <- no_data_plot("Target tumor", "No RNA-seq matrix")
+      p1 <- p1 %>% layout(yaxis = list(title = y_label))
+    }
+
+    # --- Plot 2: GTEx – per-sample boxplots by tissue ---
+    gtex_mat  <- tryCatch(gtex_tpm_rv(),  error = function(e) NULL)
+    gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
+
+    if (!is.null(gtex_mat) && isTRUE(gid %in% rownames(gtex_mat))) {
+      gtex_raw   <- as.numeric(gtex_mat[gid, ])
+      tissue_raw <- gtex_meta$tissue_type[match(colnames(gtex_mat), gtex_meta$sample_id)]
+      tissue_raw[is.na(tissue_raw)] <- "Unknown"
+      tissue     <- gsub("_", " ", tissue_raw)
+      gtex_y     <- apply_scale(gtex_raw)
+      med_by_tis <- tapply(gtex_y, tissue, median, na.rm = TRUE)
+      sorted_tis <- names(sort(med_by_tis, decreasing = TRUE))
+      # Per-tissue color: exact sub-tissue match first, then group-level prefix fallback
+      tis_col_map <- setNames(
+        sapply(unique(tissue_raw), function(t) {
+          idx <- match(t, gtex_colors_subtissue$Tissue)
+          if (!is.na(idx)) return(gtex_colors_subtissue$ColorHex[idx])
+          gtex_keys <- names(gtex_colors)
+          hits <- gtex_keys[startsWith(t, gtex_keys)]
+          if (length(hits)) gtex_colors[[hits[which.max(nchar(hits))]]] else "#BBBBBB"
+        }),
+        gsub("_", " ", unique(tissue_raw))
+      )
+      df_g <- data.frame(g = factor(tissue, levels = sorted_tis), y = gtex_y)
+      p2 <- plot_ly()
+      for (tis in sorted_tis) {
+        d <- df_g[as.character(df_g$g) == tis, , drop = FALSE]
+        if (nrow(d) == 0L) next
+        col <- tis_col_map[[tis]] %||% "#BBBBBB"
+        p2 <- do.call(add_trace, c(list(p2, data = d, x = ~g, y = ~y), make_box_args(col)))
+      }
+      p2 <- p2 %>% layout(
+        xaxis = list(title = list(text = "GTEx", standoff = 4),
+                     tickangle = -45, automargin = TRUE,
+                     categoryorder = "array", categoryarray = sorted_tis),
+        yaxis = list(title = "")
+      )
+    } else {
+      p2 <- no_data_plot("GTEx", "GTEx matrix not in app data\n(re-run prepare script)")
+    }
+
+    # --- Plot 3: TCGA – tumor (darkened study color) and normal (base study color) traces ---
+    tcga_mat  <- tryCatch(tcga_tpm_rv(),  error = function(e) NULL)
+    tcga_meta <- tryCatch(tcga_meta_rv(), error = function(e) NULL)
+
+    if (!is.null(tcga_mat) && isTRUE(gid %in% rownames(tcga_mat))) {
+      tcga_raw    <- as.numeric(tcga_mat[gid, ])
+      grp         <- tcga_meta$group[match(colnames(tcga_mat), tcga_meta$sample_id)]
+      grp[is.na(grp)] <- "Unknown"
+      tcga_y      <- apply_scale(tcga_raw)
+      unique_grps <- unique(grp)
+
+      # Sort studies by max(median_tumor, median_normal), same statistic as GTEx sort.
+      # Pairs stay intact (Tumor before Normal within each study).
+      grp_medians <- tapply(tcga_y, grp, median, na.rm = TRUE)
+      ct_codes    <- unique(sub(" .*", "", unique_grps))
+      pair_key    <- vapply(ct_codes, function(ct) {
+        meds <- grp_medians[sub(" .*", "", names(grp_medians)) == ct]
+        if (length(meds) == 0L) -Inf else max(meds, na.rm = TRUE)
+      }, numeric(1))
+      ct_sorted   <- ct_codes[order(pair_key, decreasing = TRUE)]
+      grp_order   <- unlist(lapply(ct_sorted, function(ct) {
+        grps <- unique_grps[sub(" .*", "", unique_grps) == ct]
+        grps[order(match(sub(".* ", "", grps), c("Tumor", "Normal")))]
+      }), use.names = FALSE)
+
+      grp_factor <- factor(grp, levels = grp_order)
+      df_c <- data.frame(g = grp_factor, y = tcga_y)
+      p3 <- plot_ly()
+      for (lvl in grp_order) {
+        d <- df_c[as.character(df_c$g) == lvl, , drop = FALSE]
+        if (nrow(d) == 0) next
+        ct_code <- sub(" .*", "", lvl)
+        col <- if (grepl("Normal", lvl, ignore.case = TRUE))
+          tcga_colors_normal[[ct_code]] %||% "#87C8D4"
+        else
+          tcga_colors_tumor[[ct_code]] %||% "#3B95A5"
+        p3 <- do.call(add_trace, c(list(p3, data = d, x = ~g, y = ~y), make_box_args(col)))
+      }
+      p3 <- p3 %>% layout(
+        xaxis = list(title = list(text = "TCGA", standoff = 4),
+                     tickangle = -45, automargin = TRUE,
+                     categoryorder = "array", categoryarray = grp_order),
+        yaxis = list(title = "")
+      )
+    } else {
+      p3 <- no_data_plot("TCGA", "TCGA matrix not in app data\n(re-run prepare script)")
+    }
+
+    out <- subplot(p1, p2, p3, nrows = 1, shareY = TRUE, titleX = TRUE,
+                   widths = c(0.12, 0.53, 0.35)) %>%
+      layout(
+        paper_bgcolor = "white", plot_bgcolor = "white",
+        margin = list(l = 5, r = 5, t = 10, b = 5),
+        font   = list(family = "Inter", size = 11)
+      ) %>%
+      config(
+        toImageButtonOptions = list(format = "svg", filename = "expression"),
+        modeBarButtonsToKeep = list("toImage")
+      )
+    out$x$layout$shapes <- list(list(
+      type = "line",
+      xref = "paper", x0 = 0, x1 = 1,
+      yref = "y",     y0 = y_ref, y1 = y_ref,
+      line = list(color = "#BBBBBB", width = 1.5, dash = "dash")
+    ))
+    out
+  })
+
+  # ── Translation card: Target / Ribocrypt ──────────────────────────────────
+  output$plot_prio_transl <- renderPlotly({
+    req(nrow(selected_prio_row()) > 0)
+    row       <- selected_prio_row()
+    log_scale <- isTRUE((input$prio_transl_scale %||% "log") == "log")
+    y_label   <- if (log_scale) "log(PPM+1)" else "PPM"
+    y_ref     <- if (log_scale) log(2) else 1   # threshold at PPM = 1
+    oid       <- row$orf_id
+
+    apply_scale <- function(x) if (log_scale) log(pmax(as.numeric(x), 0) + 1) else pmax(as.numeric(x), 0)
+
+    make_box_args <- function(fill_hex) list(
+      type = "box", boxpoints = "all", jitter = 0.35, pointpos = 0,
+      fillcolor    = paste0(fill_hex, "1F"),
+      line         = list(color = fill_hex, width = 1.5),
+      whiskerwidth = 0.5, showlegend = FALSE, hoveron = "boxes",
+      marker       = list(symbol = "circle-open", size = 5, opacity = 0.5, color = fill_hex)
+    )
+    no_data_plot <- function(x_title, msg) {
+      plot_ly(type = "scatter", mode = "markers", x = 0, y = 0,
+              marker = list(opacity = 0)) %>%
+        layout(xaxis = list(title = x_title, showticklabels = FALSE),
+               yaxis = list(title = ""),
+               annotations = list(list(
+                 text = msg, x = 0.5, y = 0.5,
+                 xref = "paper", yref = "paper", showarrow = FALSE,
+                 font = list(size = 10, color = "#6C757D"))))
+    }
+
+    # --- Plot 1: Target tumor (per-sample ribo-seq) ---
+    ribo_m  <- tryCatch(ribo_ppm_rv(),  error = function(e) NULL)
+    ribo_sm <- tryCatch(ribo_meta_rv(), error = function(e) NULL)
+
+    if (!is.null(ribo_m) && isTRUE(oid %in% rownames(ribo_m))) {
+      ppm_raw <- as.numeric(ribo_m[oid, ])
+      cond <- if (!is.null(ribo_sm) && "condition" %in% colnames(ribo_sm))
+        ribo_sm$condition[match(colnames(ribo_m), ribo_sm$sample_id)]
+      else rep("Tumor", length(ppm_raw))
+      cond[is.na(cond)] <- "Tumor"
+      df_r <- data.frame(g = cond, y = apply_scale(ppm_raw))
+      p1 <- do.call(plot_ly, c(list(df_r, x = ~g, y = ~y), make_box_args("#28646E"))) %>%
+        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
+               yaxis = list(title = y_label))
+    } else {
+      p1 <- no_data_plot("Target tumor", "No ribo-seq data for this ORF")
+      p1 <- p1 %>% layout(yaxis = list(title = y_label))
+    }
+
+    # --- Plots 2 & 3: Ribocrypt Primary / Cell-line – per-sample scatter (GTEx palette) ---
+    rc_mat  <- tryCatch(ribocrypt_mat_rv(),   error = function(e) NULL)
+    rc_meta <- tryCatch(ribocrypt_smeta_rv(), error = function(e) NULL)
+
+    make_rc_panel <- function(s_ids, s_y, x_title, label_fn = identity) {
+      if (length(s_ids) == 0L)
+        return(no_data_plot(x_title, paste("No", x_title, "data")))
+      s_ord    <- order(s_y, decreasing = TRUE)
+      s_ids    <- s_ids[s_ord]
+      s_y      <- s_y[s_ord]
+      s_labels <- label_fn(s_ids)
+      s_cols   <- ifelse(s_ids %in% names(rc_color_map), rc_color_map[s_ids], "#AAAAAA")
+      n        <- length(s_labels)
+      # Lollipop stems: NA-separated segments from y = 0 to each point
+      stem_x   <- as.vector(rbind(s_labels, s_labels, NA_character_))
+      stem_y   <- as.vector(rbind(rep(0, n), s_y, NA_real_))
+      plot_ly() %>%
+        add_trace(
+          x = stem_x, y = stem_y,
+          type = "scatter", mode = "lines",
+          line = list(color = "#CCCCCC", width = 1),
+          showlegend = FALSE, hoverinfo = "skip"
+        ) %>%
+        add_trace(
+          x = s_labels, y = s_y,
+          type = "scatter", mode = "markers",
+          marker = list(symbol = "circle", size = 7, color = s_cols,
+                        line   = list(color = s_cols, width = 0)),
+          showlegend = FALSE,
+          hovertext = sprintf("%s<br>%s: %.3f", s_labels, y_label, s_y),
+          hoverinfo = "text"
+        ) %>%
+        layout(
+          xaxis = list(title    = list(text = x_title, standoff = 4),
+                       tickangle = -45, automargin = TRUE,
+                       ticks    = "",
+                       categoryorder = "array", categoryarray = s_labels),
+          yaxis = list(title = "")
+        )
+    }
+
+    if (!is.null(rc_mat) && isTRUE(oid %in% rownames(rc_mat))) {
+      rc_raw <- as.numeric(rc_mat[oid, ])
+      sids   <- colnames(rc_mat)
+      grp    <- rc_meta$group[match(sids, rc_meta$sample_id)]
+      grp[is.na(grp)] <- "Unknown"
+      rc_y   <- apply_scale(rc_raw)
+
+      p_prim <- make_rc_panel(sids[grp == "Primary"],   rc_y[grp == "Primary"],   "RC Primary",
+                              label_fn = function(x) sub("^primary_", "", x))
+      p_cl   <- make_rc_panel(sids[grp == "Cell-line"], rc_y[grp == "Cell-line"], "RC Cell-line")
+    } else {
+      p_prim <- no_data_plot("RC Primary",   "Ribocrypt matrix not in app data\n(re-run prepare script)")
+      p_cl   <- no_data_plot("RC Cell-line", "Ribocrypt matrix not in app data\n(re-run prepare script)")
+    }
+
+    out <- subplot(p1, p_prim, p_cl, nrows = 1, shareY = TRUE, titleX = TRUE,
+                   widths = c(0.10, 0.20, 0.70)) %>%
+      layout(
+        paper_bgcolor = "white", plot_bgcolor = "white",
+        margin = list(l = 5, r = 5, t = 10, b = 5),
+        font   = list(family = "Inter", size = 11)
+      ) %>%
+      config(
+        toImageButtonOptions = list(format = "svg", filename = "translation"),
+        modeBarButtonsToKeep = list("toImage")
+      )
+    out$x$layout$shapes <- list(list(
+      type = "line",
+      xref = "paper", x0 = 0, x1 = 1,
+      yref = "y",     y0 = y_ref, y1 = y_ref,
+      line = list(color = "#BBBBBB", width = 1.5, dash = "dash")
+    ))
+    out
+  })
+
   output$dl_priority <- downloadHandler(
     filename = function() paste0("titan_priority_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
     content  = function(file) {
       req(prioritised_data())
       df <- prioritised_data() %>%
+        select(.row_id, n_peptides, matched_peptides, gene_name, orf_biotype_single,
+               chr, orf_start, orf_end, protein_length, start_codon,
+               priority_score, starts_with("dim_"),
+               target_expression_pct_samples, target_expression_median_TPM,
+               target_translation_pct_samples, target_translation_median_PPM,
+               GTEX_tumor_only, GTEX_tumor_enriched, GTEX_max_median_TPM,
+               TCGA_tumor_pct_samples, TCGA_normal_pct_samples,
+               ribocrypt_primary_pct_samples, `ribocrypt_cell-line_pct_samples`,
+               orf_id)
+      write.csv(df, file, row.names = FALSE)
+    }
+  )
+
+  output$dl_selected <- downloadHandler(
+    filename = function() paste0("titan_selection_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
+    content  = function(file) {
+      req(gene_prioritised_data(), prioritised_data())
+      sel       <- prio_selected_rowids()
+      sel_genes <- gene_prioritised_data() %>%
+        filter(.row_id %in% sel) %>%
+        pull(gene_id)
+      df <- prioritised_data() %>%
+        filter(gene_id %in% sel_genes) %>%
         select(.row_id, n_peptides, matched_peptides, gene_name, orf_biotype_single,
                chr, orf_start, orf_end, protein_length, start_codon,
                priority_score, starts_with("dim_"),
@@ -1783,17 +2585,37 @@ server <- function(input, output, session) {
     filter(orf_table_rv(), orf_id == input$detail_orf_id)
   })
 
+  # ORFs that share an identical set of matched peptides with the selected ORF.
+  detail_orf_siblings <- reactive({
+    req(input$detail_orf_id)
+    selected <- input$detail_orf_id
+    md <- tryCatch(matched_data(), error = function(e) NULL)
+    if (is.null(md) || nrow(md) == 0L) return(character(0))
+
+    sel_key <- md %>%
+      filter(orf_id == selected) %>%
+      pull(matched_peptide) %>%
+      { paste(sort(unique(.)), collapse = "|") }
+
+    if (!nzchar(sel_key)) return(character(0))
+
+    md %>%
+      group_by(orf_id) %>%
+      summarise(key = paste(sort(unique(matched_peptide)), collapse = "|"), .groups = "drop") %>%
+      filter(key == sel_key, orf_id != selected) %>%
+      pull(orf_id)
+  })
+
   output$detail_orf_meta <- renderUI({
     req(nrow(detail_orf()) > 0)
-    o <- detail_orf()
-    tags$div(
+    o        <- detail_orf()
+    siblings <- detail_orf_siblings()
+    tbl      <- orf_table_rv()
+
+    main_block <- tags$div(
       tags$p(tags$b("Gene: "), o$gene_name, "  ",
              tags$span(class = "badge bg-secondary", o$gene_biotype)),
-      tags$p(tags$b("Biotype: "),
-             tags$span(class = "badge",
-                       style = paste0("background-color:",
-                                      coalesce(BIOTYPE_COLORS[o$orf_biotype_single], "#888")),
-                       o$orf_biotype_single)),
+      tags$p(tags$b("Biotype: "), HTML(biotype_badge_html(o$orf_biotype_single))),
       tags$p(tags$b("Coordinates: "),
              paste0(o$chr, ":", format(o$orf_start, big.mark = ","), "–",
                     format(o$orf_end, big.mark = ","), " (", o$strand, ")")),
@@ -1801,6 +2623,31 @@ server <- function(input, output, session) {
       tags$p(tags$b("Start codon: "), o$start_codon),
       tags$small(class = "text-muted font-monospace",
                  style = "word-break:break-all;", o$orf_id)
+    )
+
+    if (length(siblings) == 0L) return(main_block)
+
+    sib_tbl  <- filter(tbl, orf_id %in% siblings)
+    sib_rows <- lapply(seq_len(nrow(sib_tbl)), function(i) {
+      s <- sib_tbl[i, ]
+      tags$div(class = "d-flex align-items-start gap-2 mb-1",
+        HTML(biotype_badge_html(s$orf_biotype_single)),
+        tags$small(class = "text-muted font-monospace",
+                   paste0(s$protein_length, " aa · ",
+                          s$chr, ":", format(s$orf_start, big.mark = ","),
+                          "–", format(s$orf_end, big.mark = ","),
+                          "  ", s$orf_id))
+      )
+    })
+
+    tagList(
+      main_block,
+      tags$hr(class = "my-2"),
+      tags$p(class = "text-muted small mb-1",
+             paste0(length(siblings), " co-identified ORF",
+                    if (length(siblings) > 1L) "s" else "",
+                    " (identical peptide evidence):")),
+      tagList(sib_rows)
     )
   })
 

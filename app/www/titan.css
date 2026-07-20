@@ -436,31 +436,45 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 /* Metric tile grid */
 .prio-metric-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-  margin: 14px 0;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 6px;
+  margin: 10px 0;
 }
 .prio-metric-tile {
   background: var(--clr-bg-card);
   border: 1px solid var(--clr-border);
   border-radius: 6px;
-  padding: 9px 11px;
+  padding: 7px 9px;
 }
 .prio-metric-label {
-  font-size: 10px;
+  font-size: 9px;
   color: #6C757D;
   font-weight: 500;
-  margin: 0 0 3px;
+  margin: 0 0 2px;
   text-transform: uppercase;
   letter-spacing: .03em;
 }
 .prio-metric-value {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   margin: 0;
   color: var(--clr-primary);
   font-variant-numeric: tabular-nums;
 }
+
+/* ORF IDs line in candidate detail header */
+.prio-detail-orfs {
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  color: #6C757D;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* Compact radio buttons inside card headers */
+.card-header .shiny-input-container { margin-bottom: 0 !important; }
+.card-header .shiny-options-group   { margin: 0 !important; }
+.card-header .radio-inline           { margin: 0 2px !important; font-size: 10px !important; }
 
 /* ── Dimension contribution bars ─────────────────────────────────────────── */
 .prio-dim-section-label {
@@ -675,3 +689,87 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   .sidebar { font-size: .8rem; }
   .prio-metric-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Inline expand cells (Peptides / ORFs columns) ──────────────────────── */
+.titan-expand-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid #28646E; color: #28646E;
+  font-size: 11px; font-weight: 700; cursor: pointer; line-height: 1;
+  user-select: none; vertical-align: middle;
+}
+.titan-xcontent {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #555;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* ── Priority table: peptide cell expand/collapse ───────────────────────── */
+.titan-pep-more,
+.titan-pep-less {
+  cursor: pointer;
+  color: #28646E;
+  font-size: 9px;
+  font-family: Inter, sans-serif;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: underline dotted rgba(40,100,110,.4);
+  text-underline-offset: 2px;
+  margin-left: 3px;
+  user-select: none;
+}
+.titan-pep-more:hover,
+.titan-pep-less:hover { color: #1D4D56; text-decoration-color: #1D4D56; }
+.titan-pep-extra { word-break: break-all; }
+
+/* ── Priority table: injected child ORF rows ────────────────────────────── */
+.titan-child-row { background-color: rgba(40,100,110,.04) !important; }
+.titan-child-row:hover { background-color: rgba(40,100,110,.08) !important; }
+
+/* ── Priority table: checkbox column ────────────────────────────────────── */
+.titan-row-checkbox { cursor: pointer; width: 13px; height: 13px; accent-color: #28646E; }
+.titan-sel-col  { width: 28px !important; text-align: center !important; padding: 4px 6px !important; }
+
+/* ── ORF expand button (inside Gene cell, same mechanism as peptide expand) ─ */
+.titan-orf-expand {
+  margin-left: 4px;
+  color: #6B9FA7;
+  border-color: #6B9FA7;
+}
+
+/* ── Priority table: gene name link ─────────────────────────────────────── */
+.titan-gene-link {
+  cursor: pointer;
+  color: #28646E;
+  text-decoration: underline dotted rgba(40,100,110,.4);
+  text-underline-offset: 2px;
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: -1px -3px;
+  transition: color .12s, background-color .4s ease-out;
+}
+.titan-gene-link:hover { color: #1D4D56; text-decoration-color: #1D4D56; }
+.titan-gene-link.titan-gene-active {
+  background-color: #C2E0E5;
+  transition: color .12s;  /* suppress bg transition on press-in for snap feel */
+}
+
+/* ── ORF detail mini-table (inline expand inside Gene cell) ──────────────── */
+.titan-child-wrap {
+  padding: 5px 0 2px 0;
+  margin-top: 4px;
+  border-top: 1px dashed #DAE9EC;
+}
+.titan-child-table {
+  width: 100%; border-collapse: collapse; font-size: 11px;
+}
+.titan-child-table th {
+  font-weight: 600; color: #667; padding: 3px 10px 4px;
+  border-bottom: 1px solid #DAE9EC; text-align: left;
+}
+.titan-child-table td {
+  padding: 3px 10px; border-bottom: 1px solid #EEF5F7; vertical-align: middle;
+}
+.titan-child-table tbody tr:last-child td { border-bottom: none; }
