@@ -39,6 +39,32 @@ n_rna_samples  <- if (!is.null(rna_tpm_mat)) ncol(rna_tpm_mat) else nrow(app_dat
 biotypes <- sort(unique(orf_table$orf_biotype_single))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GENCODE ORF TABLE  (optional; enables cross-matching against TransCode Phase 2)
+# ─────────────────────────────────────────────────────────────────────────────
+gencode_orf_tbl <- local({
+  f <- "data/gencode_orfs_phase2.csv"
+  if (!file.exists(f)) return(NULL)
+  df <- tryCatch(
+    data.table::fread(f, data.table = FALSE, showProgress = FALSE),
+    error = function(e) { message("gencode_orfs_phase2.csv not loaded: ", e$message); NULL }
+  )
+  if (is.null(df)) return(NULL)
+  # Map TransCode orf_type to app biotype labels (PT is the only rename)
+  df$orf_biotype_single <- ifelse(df$orf_type == "PT", "Processed_transcript_ORF", df$orf_type)
+  df$protein_seq    <- df$sequence_aa
+  df$protein_length <- nchar(df$sequence_aa)
+  df$chr            <- df$chrm
+  df$orf_start      <- as.integer(df[["starts (0-based)"]])
+  df$orf_end        <- as.integer(df[["ends (0-based)"]])
+  df$start_codon    <- df$initiation_codon
+  df$orf_id         <- df$releasev45_id
+  df$gene_id_clean  <- sub("\\..*", "", df$gene_id)
+  df[, c("orf_id", "gene_id", "gene_name", "gene_biotype", "orf_biotype_single",
+         "protein_seq", "protein_length", "chr", "orf_start", "orf_end",
+         "strand", "start_codon", "gene_id_clean")]
+})
+
+# ─────────────────────────────────────────────────────────────────────────────
 # COLOUR PALETTES  (GTEx tissue groups / TCGA studies)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1347,6 +1373,60 @@ server <- function(input, output, session) {
           ) %>%
           ungroup()
       }
+      # Gencode cross-match: annotate in-house hits and add Gencode-only rows
+      if (!is.null(gencode_orf_tbl)) {
+        gc_all <- match_peptides(ms_peptides(), gencode_orf_tbl)
+        if (!is.null(gc_all) && nrow(gc_all) > 0L) {
+          # Case (a): build per-peptide summary of matching Gencode ORFs
+          gc_summary <- gc_all %>%
+            group_by(matched_peptide) %>%
+            summarise(
+              gencode_match_ids = paste(
+                sprintf("%s (%s, %s)", orf_id, gene_name, orf_biotype_single),
+                collapse = "; "
+              ),
+              .groups = "drop"
+            )
+          if (!is.null(hits) && nrow(hits) > 0L) {
+            hits <- hits %>%
+              left_join(gc_summary, by = "matched_peptide") %>%
+              mutate(gencode_match_ids = replace_na(gencode_match_ids, ""),
+                     gencode_only       = FALSE)
+            # Case (b): peptides with Gencode hits but no in-house hit → new rows
+            gc_only_peps <- setdiff(unique(gc_all$matched_peptide), unique(hits$matched_peptide))
+          } else {
+            gc_only_peps <- unique(gc_all$matched_peptide)
+          }
+          if (length(gc_only_peps) > 0L) {
+            gc_only_rows <- gc_all %>%
+              filter(matched_peptide %in% gc_only_peps) %>%
+              mutate(gencode_match_ids = "", gencode_only = TRUE)
+            # Populate gene-level expression / GTEx / TCGA metrics by borrowing from
+            # any in-house ORF of the same gene (these columns are gene-level, not ORF-level)
+            expr_cols <- intersect(
+              c("target_expression_num_samples", "target_expression_pct_samples",
+                "target_expression_median_TPM", "target_expression_max_TPM",
+                "GTEX_max_median_TPM", "GTEX_median_TPM", "GTEX_DE_sig_in_all",
+                "GTEX_tumor_only", "GTEX_tumor_enriched", "GTEX_tissues_q3_gt1",
+                "TCGA_tumor_num_samples", "TCGA_tumor_pct_samples",
+                "TCGA_tumor_median_TPM", "TCGA_tumor_max_TPM",
+                "TCGA_normal_num_samples", "TCGA_normal_pct_samples",
+                "TCGA_normal_median_TPM", "TCGA_normal_max_TPM"),
+              colnames(orf_table_rv())
+            )
+            gene_expr <- orf_table_rv() %>%
+              group_by(gene_id_clean) %>%
+              summarise(across(all_of(expr_cols), first), .groups = "drop")
+            gc_only_rows <- gc_only_rows %>%
+              left_join(gene_expr, by = "gene_id_clean")
+            hits <- bind_rows(hits, gc_only_rows)
+          }
+        } else if (!is.null(hits) && nrow(hits) > 0L) {
+          hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
+        }
+      } else if (!is.null(hits) && nrow(hits) > 0L) {
+        hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
+      }
       setProgress(0.85, detail = "Joining MS metadata…")
       result <- if (!is.null(hits) && nrow(hits) > 0L) {
         left_join(hits, ms_meta(), by = "matched_peptide")
@@ -1474,7 +1554,8 @@ server <- function(input, output, session) {
     if (is.null(m) || nrow(m) == 0) return(NULL)
     fd <- filtered_data()
     if (is.null(fd) || nrow(fd) == 0) return(NULL)
-    m[m$orf_id %in% fd$orf_id, , drop = FALSE]
+    gc_pass <- if ("gencode_only" %in% colnames(m)) m$gencode_only %in% TRUE else FALSE
+    m[m$orf_id %in% fd$orf_id | gc_pass, , drop = FALSE]
   })
 
   safe_matched_data <- reactive({
@@ -2387,7 +2468,7 @@ server <- function(input, output, session) {
       ) %>%
       config(
         toImageButtonOptions = list(format = "svg", filename = "expression"),
-        modeBarButtonsToKeep = list("toImage")
+        modeBarButtons = list(list("toImage"))
       )
     out$x$layout$shapes <- list(list(
       type = "line",
@@ -2511,7 +2592,7 @@ server <- function(input, output, session) {
       ) %>%
       config(
         toImageButtonOptions = list(format = "svg", filename = "translation"),
-        modeBarButtonsToKeep = list("toImage")
+        modeBarButtons = list(list("toImage"))
       )
     out$x$layout$shapes <- list(list(
       type = "line",
@@ -2582,7 +2663,13 @@ server <- function(input, output, session) {
   # ── ORF Detail ───────────────────────────────────────────────────────────────
   detail_orf <- reactive({
     req(input$detail_orf_id)
-    filter(orf_table_rv(), orf_id == input$detail_orf_id)
+    oid      <- input$detail_orf_id
+    from_tbl <- filter(orf_table_rv(), orf_id == oid)
+    if (nrow(from_tbl) > 0L) return(from_tbl)
+    # Gencode-only ORF: build one-row summary from matched_data
+    md <- tryCatch(matched_data(), error = function(e) NULL)
+    if (is.null(md)) return(from_tbl)
+    md %>% filter(orf_id == oid) %>% slice(1L)
   })
 
   # ORFs that share an identical set of matched peptides with the selected ORF.
@@ -2625,29 +2712,48 @@ server <- function(input, output, session) {
                  style = "word-break:break-all;", o$orf_id)
     )
 
-    if (length(siblings) == 0L) return(main_block)
+    # Gencode cross-match annotation (case a: in-house ORF also matched a Gencode entry)
+    md <- tryCatch(matched_data(), error = function(e) NULL)
+    gc_ids <- if (!is.null(md) && "gencode_match_ids" %in% colnames(md)) {
+      vals <- unique(md$gencode_match_ids[md$orf_id == o$orf_id])
+      vals <- vals[!is.na(vals) & nzchar(vals)]
+      if (length(vals)) paste(vals, collapse = "; ") else ""
+    } else ""
+    gc_block <- if (nzchar(gc_ids))
+      tags$p(tags$b("Gencode cross-match: "),
+             tags$small(class = "text-muted font-monospace", gc_ids))
+    else NULL
 
-    sib_tbl  <- filter(tbl, orf_id %in% siblings)
-    sib_rows <- lapply(seq_len(nrow(sib_tbl)), function(i) {
-      s <- sib_tbl[i, ]
-      tags$div(class = "d-flex align-items-start gap-2 mb-1",
-        HTML(biotype_badge_html(s$orf_biotype_single)),
-        tags$small(class = "text-muted font-monospace",
-                   paste0(s$protein_length, " aa · ",
-                          s$chr, ":", format(s$orf_start, big.mark = ","),
-                          "–", format(s$orf_end, big.mark = ","),
-                          "  ", s$orf_id))
+    sib_section <- NULL
+    if (length(siblings) > 0L) {
+      sib_tbl  <- filter(tbl, orf_id %in% siblings)
+      sib_rows <- lapply(seq_len(nrow(sib_tbl)), function(i) {
+        s <- sib_tbl[i, ]
+        tags$div(class = "d-flex align-items-start gap-2 mb-1",
+          HTML(biotype_badge_html(s$orf_biotype_single)),
+          tags$small(class = "text-muted font-monospace",
+                     paste0(s$protein_length, " aa · ",
+                            s$chr, ":", format(s$orf_start, big.mark = ","),
+                            "–", format(s$orf_end, big.mark = ","),
+                            "  ", s$orf_id))
+        )
+      })
+      sib_section <- tagList(
+        tags$hr(class = "my-2"),
+        tags$p(class = "text-muted small mb-1",
+               paste0(length(siblings), " co-identified ORF",
+                      if (length(siblings) > 1L) "s" else "",
+                      " (identical peptide evidence):")),
+        tagList(sib_rows)
       )
-    })
+    }
+
+    if (is.null(gc_block) && is.null(sib_section)) return(main_block)
 
     tagList(
       main_block,
-      tags$hr(class = "my-2"),
-      tags$p(class = "text-muted small mb-1",
-             paste0(length(siblings), " co-identified ORF",
-                    if (length(siblings) > 1L) "s" else "",
-                    " (identical peptide evidence):")),
-      tagList(sib_rows)
+      if (!is.null(gc_block)) tagList(tags$hr(class = "my-2"), gc_block) else NULL,
+      sib_section
     )
   })
 
