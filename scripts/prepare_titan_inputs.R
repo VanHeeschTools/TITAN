@@ -43,6 +43,7 @@ PATHS <- list(
 
   # TCGA inputs
   tcga_txi      = file.path("/hpc/pmc_vanheesch/shared_resources/quantification/TCGA_matched_TN_quantification/gencode_48_quantification/rds_objects/TCGA_matched_TN_gencode48_genes.RDS"),
+  tcga_coldata  = file.path("/hpc/pmc_vanheesch/shared_resources/quantification/TCGA_matched_TN_quantification/gencode_48_quantification/rds_objects/TCGA_matched_TN_coldata.RDS"),
 
   # Outputs
   output_dir    = file.path(BASE_TITAN, ""),
@@ -183,7 +184,14 @@ cell_line_metrics <- compute_expression_metrics(cell_line_mat, threshold = 1) %>
   ) %>%
   mutate(orf_id = rownames(.))
 
-rm(ribocrypt_ext, rc_mat, primary_mat, cell_line_mat); gc()
+ribocrypt_mat         <- rc_mat   # ORF × sample matrix kept for per-sample plots
+ribocrypt_sample_meta <- data.frame(
+  sample_id = colnames(ribocrypt_mat),
+  group     = ifelse(colnames(ribocrypt_mat) %in% sample_classes$primary,
+                     "Primary", "Cell-line"),
+  stringsAsFactors = FALSE
+)
+rm(ribocrypt_ext, primary_mat, cell_line_mat); gc()
 cat("      Done.\n")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -232,7 +240,8 @@ expr_metrics <- compute_expression_metrics(rna_tpm_sub, threshold = 1) %>%
 
 rna_sample_meta <- data.frame(
   sample_id   = tumor_ids,
-  tissue_type = TARGET_TUMOR_TYPE
+  tissue_type = TARGET_TUMOR_TYPE,
+  condition   = TARGET_TUMOR_TYPE
 )
 
 cat(sprintf("      %d genes with target expression data (%d samples)\n",
@@ -299,6 +308,18 @@ gtex_data <- gtex_tissue_stats %>%
          across(c(GTEX_DE_sig_in_all, GTEX_tumor_only, GTEX_tumor_enriched),
                 ~ replace_na(.x, FALSE)))
 
+# Subset GTEx matrix to candidate genes for per-sample plots
+gtex_gene_ids_avail <- intersect(ncorfs$gene_id_clean, rownames(gtex_tpm_m))
+gtex_tpm_sub        <- gtex_tpm_m[gtex_gene_ids_avail,
+                                   coldata_gtex$sample_id[gtex_mask], drop = FALSE]
+gtex_sample_meta    <- data.frame(
+  sample_id   = coldata_gtex$sample_id[gtex_mask],
+  tissue_type = coldata_gtex$tissue_type[gtex_mask],
+  stringsAsFactors = FALSE
+)
+cat(sprintf("      GTEx sub-matrix: %d genes × %d samples\n",
+            nrow(gtex_tpm_sub), ncol(gtex_tpm_sub)))
+
 rm(txi_gtex, tumor_tpm_m, gtex_tpm_m, tissue_med_mat, gtex_de_metrics, gtex_tissue_q3_gt1,
    gtex_tissue_stats); gc()
 cat("      GTEx computation complete.\n")
@@ -329,6 +350,28 @@ tcga_normal_metrics <- compute_expression_metrics(tcga_tpm[, is_normal, drop = F
   dplyr::rename(TCGA_normal_num_samples = num_samples, TCGA_normal_pct_samples = pct_samples,
          TCGA_normal_median_TPM  = median_value, TCGA_normal_max_TPM    = max_value) %>%
   mutate(gene_id_clean = rownames(.))
+
+# Subset TCGA matrix to candidate genes × tumour+normal samples for per-sample plots
+tcga_coldata        <- readRDS(PATHS$tcga_coldata)
+tcga_gene_ids_avail <- intersect(ncorfs$gene_id_clean, rownames(tcga_tpm))
+keep_tcga           <- is_tumor | is_normal
+tcga_tpm_sub        <- tcga_tpm[tcga_gene_ids_avail, keep_tcga, drop = FALSE]
+
+# Enrich sample metadata with cancer type from coldata (fall back to "Unknown" if not found)
+ids_kept     <- colnames(tcga_tpm)[keep_tcga]
+cd_idx       <- match(ids_kept, tcga_coldata$sample_id)
+cancer_type  <- ifelse(!is.na(cd_idx), tcga_coldata$tissue_type[cd_idx], "Unknown")
+sample_type  <- ifelse(is_tumor[keep_tcga], "Tumor", "Normal")
+tcga_sample_meta <- data.frame(
+  sample_id   = ids_kept,
+  tissue_type = cancer_type,
+  sample_type = sample_type,
+  group       = paste(cancer_type, sample_type),   # e.g. "LUAD Tumor", "BRCA Normal"
+  stringsAsFactors = FALSE
+)
+cat(sprintf("      TCGA sub-matrix: %d genes × %d samples (%d tumour, %d normal, %d cancer types)\n",
+            nrow(tcga_tpm_sub), ncol(tcga_tpm_sub), sum(is_tumor), sum(is_normal),
+            n_distinct(cancer_type)))
 
 rm(txi_tcga, tcga_tpm); gc()
 cat("      TCGA computation complete.\n")
@@ -372,10 +415,16 @@ cat(sprintf("  ribocrypt_primary_PPM  : %s have data\n", pct(titan_table$ribocry
 # ─── Save ────────────────────────────────────────────────────────────────────
 app_data <- list(
   orf_table             = titan_table,
-  ribo_ppm_samples      = ribo_ppm_mat,      # ORF × RMS-sample matrix (for per-sample plots)
-  rna_tpm_mat           = rna_tpm_sub,       # gene × RMS-sample matrix (for dynamic TPM threshold)
+  ribo_ppm_samples      = ribo_ppm_mat,      # ORF × RMS-sample matrix (ribo-seq per-sample plots)
+  rna_tpm_mat           = rna_tpm_sub,       # gene × RMS-sample matrix (RNA-seq per-sample + filtering)
   ribo_sample_meta      = ribo_sample_meta,
   rna_sample_meta       = rna_sample_meta,
+  gtex_tpm_mat          = gtex_tpm_sub,      # gene × GTEx-sample matrix (per-sample expression plots)
+  gtex_sample_meta      = gtex_sample_meta,
+  tcga_tpm_mat          = tcga_tpm_sub,      # gene × TCGA-sample matrix (tumour+normal per-sample plots)
+  tcga_sample_meta      = tcga_sample_meta,
+  ribocrypt_mat         = ribocrypt_mat,     # ORF × Ribocrypt-sample matrix (per-sample translation plots)
+  ribocrypt_sample_meta = ribocrypt_sample_meta,
   ribocrypt_meta        = list(
     primary_samples   = sample_classes$primary,
     cell_line_samples = sample_classes$cell_line
