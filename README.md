@@ -116,9 +116,9 @@ Navigate to `http://localhost:3838` in your browser.
 
 1. **Data** tab — load the prepared RDS (`titan_orf_table.rds`) or use the built-in demo dataset
 2. **Overview** tab — filter by biotype, ribo-seq and RNA-seq thresholds; inspect translation/expression distributions
-3. **MS** tab — upload a TITAN-ready peptide file; the app matches peptides to ORF protein sequences
-4. **Prioritisation** tab — view candidates ranked by a weighted priority score; filter by tumour specificity category or GTEx expression; click a row for the candidate detail panel (tissue Q3 flags, score profile radar, dimension breakdown)
-5. **ORF Detail** tab — per-ORF ribo-seq and RNA-seq plots, protein sequence with matched peptides highlighted
+3. **MS** tab — upload a TITAN-ready peptide file; the app matches peptides to ORF protein sequences. Peptides that match an `ORF-annotated` or `NC-variant` ORF are restricted to those canonical biotypes and excluded from ncORF evidence.
+4. **Prioritisation** tab — candidates are displayed one row per gene (grouped by gene × biotype × peptide set), with the highest-scoring ORF as the representative; click **+** to expand and inspect co-identified ORFs within the same group. Rows are ranked by a weighted priority score; filter by tumour specificity category or GTEx expression; click a row for the candidate detail panel (tissue Q3 flags, score profile radar, dimension breakdown).
+5. **ORF Detail** tab — per-ORF ribo-seq and RNA-seq plots, protein sequence with matched peptides highlighted. The expression panel shows target tumour, GTEx (per-sub-tissue coloured boxplots sorted high-to-low by median TPM), and TCGA (per-study coloured boxplots, tumour darker than matched normal, sorted high-to-low by peak median TPM). The translation panel shows target tumour alongside Ribocrypt data as per-sample lollipop plots split into a Primary tissue panel and a Cell-line panel, with points coloured by GTEx tissue group.
 
 ---
 
