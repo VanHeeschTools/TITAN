@@ -13,6 +13,7 @@ suppressPackageStartupMessages({
   library(tidyr)
   library(stringr)
   library(ggplot2)
+  library(patchwork)
   library(shinyWidgets)
 })
 
@@ -488,6 +489,504 @@ make_child_html <- function(orfs_df) {
     )
   }, character(1))
   paste(rows, collapse = "")
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REPORT GENERATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+.rpt_theme <- function(bs = 9) {
+  theme_bw(base_size = bs) + theme(
+    panel.grid.major.x = element_blank(),
+    axis.text.x   = element_text(angle = 45, hjust = 1, size = 6),
+    axis.text.y   = element_text(size = bs - 1),
+    axis.title    = element_text(size = bs, face = "bold"),
+    plot.margin   = margin(3, 4, 2, 3, "pt"),
+    legend.position = "none"
+  )
+}
+
+.rpt_void <- function(xtitle, msg) {
+  p <- ggplot() +
+    annotate("text", x = 0.5, y = 0.5, label = msg,
+             color = "grey65", size = 3.0, hjust = 0.5, vjust = 0.5) +
+    labs(x = xtitle, y = "") + theme_void(base_size = 9) +
+    theme(axis.title.x = element_text(size = 9, face = "bold", color = "#555"),
+          plot.margin   = margin(3, 4, 2, 3, "pt"))
+  attr(p, "is_void") <- TRUE
+  p
+}
+
+.rpt_png_uri <- function(p, w, h, dpi = 150) {
+  tmp <- tempfile(fileext = ".png")
+  on.exit(unlink(tmp))
+  suppressMessages(ggplot2::ggsave(tmp, plot = p, width = w, height = h,
+                                   dpi = dpi, bg = "white", device = "png"))
+  paste0("data:image/png;base64,",
+         jsonlite::base64_enc(readBin(tmp, "raw", n = file.info(tmp)$size)))
+}
+
+.rpt_expr_target <- function(row, rna_mat, rna_meta, apsc, ylabel, y_ref = NULL, ylim = NULL) {
+  gid <- row$gene_id_clean
+  if (is.null(rna_mat) || !isTRUE(gid %in% rownames(rna_mat)))
+    return(.rpt_void("Target tumor", "No RNA-seq data"))
+  tpm  <- apsc(rna_mat[gid, ])
+  cond <- if (!is.null(rna_meta)) {
+    label_col <- if ("condition"   %in% colnames(rna_meta)) rna_meta$condition
+                 else if ("tissue_type" %in% colnames(rna_meta)) rna_meta$tissue_type
+                 else rep("Tumor", nrow(rna_meta))
+    label_col[match(colnames(rna_mat), rna_meta$sample_id)]
+  } else rep("Tumor", length(tpm))
+  cond[is.na(cond)] <- "Tumor"
+  df <- data.frame(g = factor(cond), y = tpm)
+  p <- ggplot(df, aes(x = g, y = y)) +
+    geom_boxplot(fill = "#28646E22", color = "#28646E", width = 0.5,
+                 outlier.shape = 1, outlier.size = 0.7) +
+    geom_jitter(width = 0.14, size = 0.6, color = "#28646E", alpha = 0.5) +
+    labs(x = NULL, y = ylabel) + .rpt_theme()
+  if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
+  if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
+  p
+}
+
+.rpt_expr_gtex <- function(row, gtex_mat, gtex_meta, apsc, y_ref = NULL, ylim = NULL) {
+  gid <- row$gene_id_clean
+  if (is.null(gtex_mat) || !isTRUE(gid %in% rownames(gtex_mat)))
+    return(.rpt_void("GTEx", "GTEx matrix not loaded"))
+  tpm     <- apsc(gtex_mat[gid, ])
+  tis_raw <- gtex_meta$tissue_type[match(colnames(gtex_mat), gtex_meta$sample_id)]
+  tis_raw[is.na(tis_raw)] <- "Unknown"
+  tis_lab <- gsub("_", " ", tis_raw)
+  df  <- data.frame(tis_raw = tis_raw, tissue = tis_lab, y = tpm)
+  med <- tapply(df$y, df$tissue, median, na.rm = TRUE)
+  df$tissue <- factor(df$tissue, levels = names(sort(med, decreasing = TRUE)))
+  col_map <- setNames(
+    sapply(unique(tis_raw), function(t) {
+      idx  <- match(t, gtex_colors_subtissue$Tissue)
+      if (!is.na(idx)) return(gtex_colors_subtissue$ColorHex[idx])
+      hits <- names(gtex_colors)[startsWith(t, names(gtex_colors))]
+      if (length(hits)) gtex_colors[[hits[which.max(nchar(hits))]]] else "#BBBBBB"
+    }),
+    gsub("_", " ", unique(tis_raw))
+  )
+  p <- ggplot(df, aes(x = tissue, y = y, fill = tissue, color = tissue)) +
+    geom_boxplot(width = 0.7, alpha = 0.18, outlier.shape = 1, outlier.size = 0.3) +
+    scale_fill_manual(values = col_map)  +
+    scale_color_manual(values = col_map) +
+    labs(x = "GTEx", y = "") + .rpt_theme()
+  if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
+  if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
+  p
+}
+
+.rpt_expr_tcga <- function(row, tcga_mat, tcga_meta, apsc, y_ref = NULL, ylim = NULL) {
+  gid <- row$gene_id_clean
+  if (is.null(tcga_mat) || !isTRUE(gid %in% rownames(tcga_mat)))
+    return(.rpt_void("TCGA", "TCGA matrix not loaded"))
+  tpm     <- apsc(tcga_mat[gid, ])
+  grp_raw <- tcga_meta$group[match(colnames(tcga_mat), tcga_meta$sample_id)]
+  grp_raw[is.na(grp_raw)] <- "Unknown"
+  df       <- data.frame(grp = grp_raw, y = tpm)
+  gmeds    <- tapply(df$y, df$grp, median, na.rm = TRUE)
+  ct_codes <- sub(" .*", "", unique(grp_raw))
+  pk       <- vapply(unique(ct_codes), function(ct) {
+    m <- gmeds[sub(" .*", "", names(gmeds)) == ct]
+    if (!length(m)) -Inf else max(m, na.rm = TRUE)
+  }, numeric(1))
+  ct_sorted <- unique(ct_codes)[order(pk, decreasing = TRUE)]
+  go <- unlist(lapply(ct_sorted, function(ct) {
+    gs <- unique(grp_raw)[sub(" .*", "", unique(grp_raw)) == ct]
+    gs[order(match(sub(".* ", "", gs), c("Tumor", "Normal")))]
+  }), use.names = FALSE)
+  df$grp <- factor(df$grp, levels = go)
+  col_map <- sapply(go, function(lvl) {
+    ct <- sub(" .*", "", lvl)
+    if (grepl("Normal", lvl, ignore.case = TRUE)) tcga_colors_normal[[ct]] %||% "#87C8D4"
+    else tcga_colors_tumor[[ct]] %||% "#3B95A5"
+  })
+  p <- ggplot(df, aes(x = grp, y = y, fill = grp, color = grp)) +
+    geom_boxplot(width = 0.7, alpha = 0.35, outlier.shape = 1, outlier.size = 0.3) +
+    scale_fill_manual(values = col_map)  +
+    scale_color_manual(values = col_map) +
+    labs(x = "TCGA", y = "") + .rpt_theme()
+  if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
+  if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
+  p
+}
+
+.rpt_transl_target <- function(row, ribo_m, ribo_sm, apsc, ylabel, y_ref = NULL, ylim = NULL) {
+  oid <- row$orf_id
+  if (is.null(ribo_m) || !isTRUE(oid %in% rownames(ribo_m)))
+    return(.rpt_void("Target tumor", "No ribo-seq data\nfor this ORF"))
+  ppm   <- apsc(as.numeric(ribo_m[oid, ]))
+  sids  <- colnames(ribo_m)
+  cond  <- if (!is.null(ribo_sm) && "condition" %in% colnames(ribo_sm))
+    ribo_sm$condition[match(sids, ribo_sm$sample_id)]
+  else rep("Tumor", length(ppm))
+  cond[is.na(cond)] <- "Tumor"
+  df <- data.frame(g = factor(cond), y = ppm)
+  p <- ggplot(df, aes(x = g, y = y)) +
+    geom_boxplot(fill = "#28646E22", color = "#28646E", width = 0.5,
+                 outlier.shape = 1, outlier.size = 0.7) +
+    geom_jitter(width = 0.14, size = 0.6, color = "#28646E", alpha = 0.5) +
+    labs(x = NULL, y = ylabel) + .rpt_theme()
+  if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
+  if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
+  p
+}
+
+.rpt_transl_rc <- function(row, rc_mat, rc_meta, grp_label, apsc, label_fn = identity, y_ref = NULL, ylim = NULL) {
+  oid        <- row$orf_id
+  tgt_grp    <- if (grepl("Primary", grp_label, ignore.case = TRUE)) "Primary" else "Cell-line"
+  if (is.null(rc_mat) || !isTRUE(oid %in% rownames(rc_mat)))
+    return(.rpt_void(grp_label, "Ribocrypt matrix not loaded"))
+  rc_raw  <- as.numeric(rc_mat[oid, ])
+  sids    <- colnames(rc_mat)
+  grp     <- rc_meta$group[match(sids, rc_meta$sample_id)]
+  grp[is.na(grp)] <- "Unknown"
+  mask <- grp == tgt_grp
+  if (!any(mask)) return(.rpt_void(grp_label, paste("No", grp_label, "data")))
+  s_ids <- sids[mask]; s_y <- apsc(rc_raw[mask])
+  ord   <- order(s_y, decreasing = TRUE)
+  s_ids <- s_ids[ord]; s_y <- s_y[ord]
+  s_lab <- factor(label_fn(s_ids), levels = label_fn(s_ids))
+  s_col <- ifelse(s_ids %in% names(rc_color_map), rc_color_map[s_ids], "#AAAAAA")
+  n     <- length(s_lab)
+  df_st <- data.frame(x = rep(s_lab, each = 3),
+                      y = as.vector(rbind(rep(0, n), s_y, NA_real_)),
+                      id = rep(seq_len(n), each = 3))
+  df_pt <- data.frame(x = s_lab, y = s_y, fill = s_col)
+  p <- ggplot() +
+    geom_line(data = df_st, aes(x = x, y = y, group = id),
+              color = "#CCCCCC", linewidth = 0.45, na.rm = TRUE) +
+    geom_point(data = df_pt, aes(x = x, y = y, fill = I(fill), color = I(fill)),
+               shape = 21, size = 2.2, stroke = 0) +
+    scale_x_discrete(limits = levels(s_lab)) +
+    labs(x = grp_label, y = "") + .rpt_theme() +
+    theme(axis.text.x = element_text(size = 6))
+  if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
+  if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
+  p
+}
+
+.rpt_seq_html <- function(seq, peps) {
+  # Simplified version of render_protein_seq_html with no Bootstrap/popover
+  if (is.na(seq) || !nzchar(seq)) return("<em style='color:#888'>No sequence available.</em>")
+  PEP_COLS <- c("#28646E", "#D4850A", "#8E44AD", "#C0392B", "#0097A7")
+  peps     <- unique(peps[!is.na(peps) & nzchar(peps)])
+  n        <- nchar(seq)
+  chars    <- strsplit(seq, "")[[1]]
+  coverage <- integer(n)
+  for (pi in seq_along(peps)) {
+    m <- gregexpr(peps[[pi]], seq, fixed = TRUE)[[1]]
+    if (m[1L] > 0L) {
+      plen <- nchar(peps[[pi]])
+      for (s in m) for (j in s:min(s + plen - 1L, n)) if (!coverage[j]) coverage[j] <- pi
+    }
+  }
+  BLOCK <- 60L
+  blocks <- vapply(seq_len(ceiling(n / BLOCK)), function(b) {
+    i0 <- (b - 1L) * BLOCK + 1L; i1 <- min(b * BLOCK, n)
+    cv <- coverage[i0:i1]; sv <- chars[i0:i1]
+    rl  <- rle(cv); r_len <- rl$lengths; r_val <- rl$values
+    r_end <- cumsum(r_len); r_st <- c(1L, r_end[-length(r_end)] + 1L)
+    parts <- mapply(function(rs, re, cvi) {
+      txt <- paste(sv[rs:re], collapse = "")
+      if (cvi == 0L) return(sprintf('<span style="color:#444">%s</span>', txt))
+      col <- PEP_COLS[(cvi - 1L) %% 5L + 1L]
+      sprintf('<span style="background:%s33;color:%s;font-weight:bold" title="%s">%s</span>',
+              col, col, peps[[cvi]], txt)
+    }, r_st, r_end, r_val, SIMPLIFY = TRUE)
+    sprintf('<span style="color:#aaa;margin-right:4px">%4d</span>%s', i0, paste(parts, collapse = ""))
+  }, character(1))
+  legend <- if (length(peps))
+    paste(vapply(seq_along(peps), function(pi) {
+      col <- PEP_COLS[(pi - 1L) %% 5L + 1L]
+      sprintf('<code style="background:%s22;color:%s;border:1px solid %s55;border-radius:3px;padding:0 3px;font-size:12px">%s</code>',
+              col, col, col, peps[[pi]])
+    }, character(1)), collapse = " ")
+  else '<span style="color:#888;font-size:12px">No MS peptides matched.</span>'
+  paste0('<div style="font-size:12px;color:#888;margin-bottom:4px">', legend, '</div>',
+         '<div style="font-family:monospace;font-size:11px;line-height:1.55;word-break:break-all">',
+         paste(blocks, collapse = "<br>"), '</div>')
+}
+
+.rpt_badge <- function(tumor_only, tumor_enriched) {
+  if (isTRUE(as.logical(tumor_only)))
+    '<span style="background:#d4edda;color:#155724;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Tumor-only</span>'
+  else if (isTRUE(as.logical(tumor_enriched)))
+    '<span style="background:#cce5ff;color:#004085;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Tumor-enriched</span>'
+  else
+    '<span style="background:#e2e3e5;color:#383d41;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Non-specific</span>'
+}
+
+.rpt_ylim <- function(vals_list) {
+  v <- unlist(vals_list); v <- v[is.finite(v)]
+  if (!length(v)) return(NULL)
+  rng  <- range(v, na.rm = TRUE)
+  span <- max(diff(rng), 1e-6)
+  c(rng[1] - span * 0.04, rng[2] + span * 0.04)
+}
+
+.rpt_build_page <- function(row, pep_list,
+                             rna_mat, rna_meta, gtex_mat, gtex_meta,
+                             tcga_mat, tcga_meta, ribo_m, ribo_sm,
+                             rc_mat,  rc_meta,
+                             logo_uri, gen_date, log_scale) {
+  LW <- 8.27; PH_E <- 2.05; PH_T <- 1.85
+  apsc    <- if (log_scale) function(x) log(pmax(as.numeric(x), 0) + 1) else function(x) pmax(as.numeric(x), 0)
+  ylabel_e <- if (log_scale) "log(TPM+1)" else "TPM"
+  ylabel_t <- if (log_scale) "log(PPM+1)" else "PPM"
+  y_ref   <- if (log_scale) log(2) else 1
+
+  gid <- row$gene_id_clean
+  oid <- row$orf_id
+
+  # Shared y-range for expression group (target TPM + GTEx TPM + TCGA TPM)
+  expr_ylim <- .rpt_ylim(c(
+    if (!is.null(rna_mat)  && isTRUE(gid %in% rownames(rna_mat)))  list(apsc(as.numeric(rna_mat[gid, ])))  else list(),
+    if (!is.null(gtex_mat) && isTRUE(gid %in% rownames(gtex_mat))) list(apsc(as.numeric(gtex_mat[gid, ]))) else list(),
+    if (!is.null(tcga_mat) && isTRUE(gid %in% rownames(tcga_mat))) list(apsc(as.numeric(tcga_mat[gid, ]))) else list()
+  ))
+
+  # Shared y-range for translation group (ribo PPM + RC PPM)
+  transl_ylim <- .rpt_ylim(c(
+    if (!is.null(ribo_m) && isTRUE(oid %in% rownames(ribo_m))) list(apsc(as.numeric(ribo_m[oid, ]))) else list(),
+    if (!is.null(rc_mat) && isTRUE(oid %in% rownames(rc_mat))) list(apsc(as.numeric(rc_mat[oid, ]))) else list()
+  ))
+
+  p_et  <- .rpt_expr_target(row, rna_mat, rna_meta, apsc, ylabel_e, y_ref = y_ref, ylim = expr_ylim)
+  p_eg  <- .rpt_expr_gtex(row, gtex_mat, gtex_meta, apsc,           y_ref = y_ref, ylim = expr_ylim)
+  p_etc <- .rpt_expr_tcga(row, tcga_mat, tcga_meta, apsc,           y_ref = y_ref, ylim = expr_ylim)
+  p_tt  <- .rpt_transl_target(row, ribo_m, ribo_sm, apsc, ylabel_t, y_ref = y_ref, ylim = transl_ylim)
+  p_tp  <- .rpt_transl_rc(row, rc_mat, rc_meta, "RC Primary",
+                           apsc, label_fn = function(x) sub("^primary_", "", x),
+                           y_ref = y_ref, ylim = transl_ylim)
+  p_tcl <- .rpt_transl_rc(row, rc_mat, rc_meta, "RC Cell-line", apsc,
+                           y_ref = y_ref, ylim = transl_ylim)
+
+  # Align panel boundaries within each row so varying label lengths don't shift panels.
+  # Skip alignment if any plot in the row has no data (void placeholder).
+  .is_void <- function(p) isTRUE(attr(p, "is_void"))
+  .save <- function(p, w, h) .rpt_png_uri(cowplot::ggdraw(p), w, h)
+
+  al_e <- if (!.is_void(p_et) && !.is_void(p_eg) && !.is_void(p_etc))
+    cowplot::align_plots(p_et, p_eg, p_etc, align = "h", axis = "tb")
+  else list(p_et, p_eg, p_etc)
+
+  al_t <- if (!.is_void(p_tt) && !.is_void(p_tp) && !.is_void(p_tcl))
+    cowplot::align_plots(p_tt, p_tp, p_tcl, align = "h", axis = "tb")
+  else list(p_tt, p_tp, p_tcl)
+
+  uri_et  <- .save(al_e[[1]], LW * 0.12, PH_E)
+  uri_eg  <- .save(al_e[[2]], LW * 0.53, PH_E)
+  uri_etc <- .save(al_e[[3]], LW * 0.35, PH_E)
+  uri_tt  <- .save(al_t[[1]], LW * 0.10, PH_T)
+  uri_tp  <- .save(al_t[[2]], LW * 0.20, PH_T)
+  uri_tcl <- .save(al_t[[3]], LW * 0.70, PH_T)
+
+  seq_html <- .rpt_seq_html(row$protein_seq %||% NA_character_, pep_list)
+
+  bio_col <- unname(BIOTYPE_COLORS[row$orf_biotype_single])
+  if (is.na(bio_col)) bio_col <- "#95A5A6"
+
+  tiles <- list(
+    list("Expr. %",      fmt1(row$target_expression_pct_samples)),
+    list("Median TPM",   fmt2(row$target_expression_median_TPM)),
+    list("Transl. %",    fmt1(row$target_translation_pct_samples)),
+    list("Median PPM",   fmt2(row$target_translation_median_PPM)),
+    list("GTEx max TPM", fmt2(row$GTEX_max_median_TPM)),
+    list("TCGA tumor %", fmt1(row$TCGA_tumor_pct_samples)),
+    list("TCGA normal %",fmt1(row$TCGA_normal_pct_samples)),
+    list("RC primary %", fmt1(row$ribocrypt_primary_pct_samples)),
+    list("RC CL %",      fmt1(row$`ribocrypt_cell-line_pct_samples`))
+  )
+  tile_html <- paste(vapply(tiles, function(t)
+    sprintf('<div style="flex:1;border:1px solid #ddd;border-radius:4px;padding:3px 4px;text-align:center;min-width:0">
+               <div style="font-size:8.5px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">%s</div>
+               <div style="font-size:11px;font-weight:600;color:#1a1a1a">%s</div></div>', t[[1]], t[[2]]),
+    character(1)), collapse = "")
+
+  n_orfs_str <- sprintf('%s ORF%s: %s', row$n_orfs, if (isTRUE(row$n_orfs == 1L)) "" else "s",
+                        row$orf_ids)
+  n_pep_str  <- sprintf('%s peptide%s: %s', row$n_peptides, if (isTRUE(row$n_peptides == 1L)) "" else "s",
+                        row$matched_peptides)
+
+  sprintf('
+<div class="rpt-slide">
+  <div class="rpt-inner">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5pt">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:6pt;flex-wrap:wrap">
+          <span style="font-size:17pt;font-weight:700;color:#1a1a1a;line-height:1.1">%s</span>
+          <span style="background:%s22;color:#111;border:1px solid %s55;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">%s</span>
+          %s
+        </div>
+        <div style="font-size:9px;color:#555;margin-top:3px;word-break:break-all">%s</div>
+        <div style="font-size:9px;color:#555;word-break:break-all">%s</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:12pt">
+        <div style="font-size:20pt;font-weight:700;color:#28646E;line-height:1">%.1f</div>
+        <div style="font-size:9px;color:#888">/ 100</div>
+      </div>
+    </div>
+    <div style="border-top:1px solid #e0e0e0;margin-bottom:5pt"></div>
+    <div style="display:flex;gap:4pt;margin-bottom:6pt">%s</div>
+    <div style="display:flex;gap:0.15in">
+      <div style="flex:0 0 62%%;min-width:0">
+        <div style="font-size:9pt;font-weight:700;color:#444;margin-bottom:2pt">
+          Expression (%s)
+        </div>
+        <div style="display:flex;width:100%%;height:%.2fin">
+          <img src="%s" style="width:12%%;height:100%%;object-fit:fill">
+          <img src="%s" style="width:53%%;height:100%%;object-fit:fill">
+          <img src="%s" style="width:35%%;height:100%%;object-fit:fill">
+        </div>
+        <div style="border-top:1px solid #eee;margin:4pt 0 3pt"></div>
+        <div style="font-size:9pt;font-weight:700;color:#444;margin-bottom:2pt">
+          Translation (%s)
+        </div>
+        <div style="display:flex;width:100%%;height:%.2fin">
+          <img src="%s" style="width:10%%;height:100%%;object-fit:fill">
+          <img src="%s" style="width:20%%;height:100%%;object-fit:fill">
+          <img src="%s" style="width:70%%;height:100%%;object-fit:fill">
+        </div>
+      </div>
+      <div style="flex:1;min-width:0;padding-left:8pt;border-left:1px solid #eee">
+        <div style="font-size:9pt;font-weight:700;color:#444;margin-bottom:4pt">
+          Protein sequence &amp; MS peptide matches
+        </div>
+        <div style="overflow:hidden">%s</div>
+      </div>
+    </div>
+  </div>
+  <div class="rpt-footer">
+    <img src="%s" style="height:22px">
+    <span>Generated: %s</span>
+  </div>
+</div>',
+    row$gene_name, bio_col, bio_col, row$orf_biotype_single,
+    .rpt_badge(row$GTEX_tumor_only, row$GTEX_tumor_enriched),
+    n_orfs_str, n_pep_str, row$priority_score,
+    tile_html,
+    ylabel_e, PH_E, uri_et, uri_eg, uri_etc,
+    ylabel_t, PH_T, uri_tt, uri_tp, uri_tcl,
+    seq_html, logo_uri, gen_date
+  )
+}
+
+.rpt_build_summary_page <- function(params_list, data_info, logo_uri, gen_date) {
+  weight_rows <- paste(vapply(params_list$weights, function(r)
+    sprintf('<tr><td style="padding:2px 8px">%s</td><td style="padding:2px 8px;text-align:right;color:%s">%+.2f</td></tr>',
+            r$label, if (r$weight > 0) "#00A555" else if (r$weight < 0) "#C0392B" else "#888", r$weight),
+    character(1)), collapse = "")
+
+  filter_rows <- paste(vapply(seq_along(params_list$filters), function(i) {
+    f <- params_list$filters[[i]]
+    sprintf('<tr><td style="padding:2px 8px">%s</td><td style="padding:2px 8px">%s</td></tr>', f[[1]], f[[2]])
+  }, character(1)), collapse = "")
+
+  data_rows <- paste(vapply(seq_along(data_info), function(i) {
+    r <- data_info[[i]]
+    sprintf('<tr><td style="padding:2px 8px">%s</td><td style="padding:2px 8px">%s</td></tr>', r[[1]], r[[2]])
+  }, character(1)), collapse = "")
+
+  tbl_style <- 'style="border-collapse:collapse;font-size:8.5px;width:100%"'
+  th_style  <- 'style="padding:3px 8px;background:#f5f5f5;text-align:left;font-size:9px;font-weight:700;border-bottom:2px solid #ddd"'
+
+  sprintf('
+<div class="rpt-slide">
+  <div class="rpt-inner">
+    <div style="font-size:14pt;font-weight:700;color:#1a1a1a;margin-bottom:4pt">
+      Report settings &amp; inputs
+    </div>
+    <div style="border-top:1px solid #e0e0e0;margin-bottom:12pt"></div>
+    <div style="display:flex;gap:0.4in">
+      <div style="flex:1">
+        <div style="font-size:9px;font-weight:700;color:#444;margin-bottom:6pt">
+          Scoring — Preset: <span style="color:#28646E">%s</span>
+        </div>
+        <table %s>
+          <thead><tr><th %s>Dimension</th><th %s>Weight</th></tr></thead>
+          <tbody>%s</tbody>
+        </table>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:9px;font-weight:700;color:#444;margin-bottom:6pt">
+          Active filters
+        </div>
+        <table %s>
+          <thead><tr><th %s>Parameter</th><th %s>Value</th></tr></thead>
+          <tbody>%s</tbody>
+        </table>
+        <div style="font-size:9px;font-weight:700;color:#444;margin-top:14pt;margin-bottom:6pt">
+          Data inputs
+        </div>
+        <table %s>
+          <thead><tr><th %s>Item</th><th %s>Value</th></tr></thead>
+          <tbody>%s</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="rpt-footer">
+    <img src="%s" style="height:22px">
+    <span>Generated: %s</span>
+  </div>
+</div>',
+    params_list$preset %||% "Custom",
+    tbl_style, th_style, th_style, weight_rows,
+    tbl_style, th_style, th_style, filter_rows,
+    tbl_style, th_style, th_style, data_rows,
+    logo_uri, gen_date
+  )
+}
+
+.rpt_wrap_html <- function(pages) {
+  css <- '
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, Helvetica, sans-serif; background: #ccc; }
+@page { size: 13.33in 7.5in; margin: 0; }
+@media print {
+  body { background: white; }
+  .no-print { display: none !important; }
+  .rpt-slide { page-break-after: always; break-after: page; }
+}
+.rpt-slide {
+  width: 13.33in; height: 7.5in;
+  position: relative; overflow: hidden;
+  background: white;
+  margin: 0 auto 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+.rpt-inner {
+  position: absolute;
+  left: 0.25in; right: 0.25in; top: 0.18in; bottom: 0.52in;
+}
+.rpt-footer {
+  position: absolute;
+  left: 0.25in; right: 0.25in; bottom: 0.07in; height: 0.38in;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid #e0e0e0; padding-top: 4px;
+  font-size: 10px; color: #888;
+}
+'
+  print_btn <- '
+<div class="no-print" style="text-align:center;padding:16px;background:#f0f0f0;margin-bottom:0">
+  <button onclick="window.print()"
+          style="background:#28646E;color:white;border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer">
+    &#128438; Print / Save as PDF &nbsp;(use landscape, fit to page)
+  </button>
+  <span style="margin-left:16px;font-size:12px;color:#555">
+    In the print dialog set: Landscape orientation · Paper size: Custom 13.33 × 7.5 in (or A3 landscape) · No margins
+  </span>
+</div>'
+
+  paste0('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">',
+         '\n<title>TITAN Report</title>\n<style>', css, '</style>\n</head>\n<body>\n',
+         print_btn, '\n',
+         paste(pages, collapse = "\n"),
+         '\n</body>\n</html>')
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1171,7 +1670,29 @@ ui <- page_navbar(
     )
   ),
 
-  # ── Tab 5: About ────────────────────────────────────────────────────────────
+  # ── Tab 5: Report ───────────────────────────────────────────────────────────
+  nav_panel(
+    "Report", icon = icon("file-pdf"),
+    div(class = "container-fluid py-3",
+      uiOutput("report_status_ui"),
+      br(),
+      div(class = "d-flex align-items-center gap-3",
+        downloadButton("dl_report", " Generate report",
+                       icon  = icon("download"),
+                       class = "btn-primary"),
+        radioButtons("rpt_scale", NULL,
+                     choices  = c("log(TPM+1) / log(PPM+1)" = "log", "Raw values" = "raw"),
+                     selected = "log", inline = TRUE)
+      ),
+      br(),
+      tags$p(class = "text-muted small",
+             icon("circle-info"), " Downloads a self-contained HTML file.",
+             " Open it in Chrome/Edge and use ", tags$b("File → Print → Save as PDF"),
+             " (landscape, no margins, custom paper size 13.33 × 7.5 in).")
+    )
+  ),
+
+  # ── Tab 6: About ────────────────────────────────────────────────────────────
   nav_panel(
     "About", icon = icon("circle-question"),
     card(
@@ -2863,6 +3384,121 @@ server <- function(input, output, session) {
 
     render_protein_seq_html(seq, peps, pep_info)
   })
+
+  # ── Report ───────────────────────────────────────────────────────────────────
+  output$report_status_ui <- renderUI({
+    sel <- prio_selected_rowids()
+    n   <- length(sel)
+    if (!isTRUE(started_rv()))
+      return(div(class = "alert alert-secondary py-2",
+                 icon("circle-info"), " Run START on the Data tab first."))
+    if (n == 0L)
+      return(div(class = "alert alert-warning py-2",
+                 icon("triangle-exclamation"),
+                 " No candidates selected. Use the checkboxes in the Prioritisation table."))
+    div(class = "alert alert-success py-2",
+        icon("circle-check"),
+        sprintf(" %d candidate%s selected.", n, if (n == 1L) "" else "s"))
+  })
+
+  output$dl_report <- downloadHandler(
+    filename = function() paste0("titan_report_", format(Sys.time(), "%Y%m%d_%H%M"), ".html"),
+    content  = function(file) {
+      sel <- prio_selected_rowids()
+      validate(need(length(sel) > 0, "No candidates selected."),
+               need(isTRUE(started_rv()), "Run START first."))
+
+      gdata <- gene_prioritised_data()
+      rows  <- gdata[gdata$.row_id %in% sel, , drop = FALSE]
+      validate(need(nrow(rows) > 0, "Selected rows not found."))
+
+      # Pre-fetch all reactive matrices once
+      rna_mat   <- tryCatch(rna_tpm_rv(),          error = function(e) NULL)
+      rna_meta  <- tryCatch(rna_meta_rv(),          error = function(e) NULL)
+      gtex_mat  <- tryCatch(gtex_tpm_rv(),          error = function(e) NULL)
+      gtex_meta <- tryCatch(gtex_meta_rv(),         error = function(e) NULL)
+      tcga_mat  <- tryCatch(tcga_tpm_rv(),          error = function(e) NULL)
+      tcga_meta <- tryCatch(tcga_meta_rv(),         error = function(e) NULL)
+      ribo_m    <- tryCatch(ribo_ppm_rv(),          error = function(e) NULL)
+      ribo_sm   <- tryCatch(ribo_meta_rv(),         error = function(e) NULL)
+      rc_mat    <- tryCatch(ribocrypt_mat_rv(),     error = function(e) NULL)
+      rc_meta   <- tryCatch(ribocrypt_smeta_rv(),   error = function(e) NULL)
+      md        <- tryCatch(matched_data(),         error = function(e) NULL)
+      ot        <- tryCatch(orf_table_rv(),         error = function(e) orf_table)
+      log_scale <- isTRUE((input$rpt_scale %||% "log") == "log")
+      gen_date  <- format(Sys.time(), "%Y-%m-%d %H:%M")
+
+      # Logo as SVG data URI
+      logo_path <- "www/titan_logo_blue.svg"
+      logo_uri  <- if (file.exists(logo_path)) {
+        raw_b <- readBin(logo_path, "raw", n = file.info(logo_path)$size)
+        paste0("data:image/svg+xml;base64,", jsonlite::base64_enc(raw_b))
+      } else ""
+
+      withProgress(message = "Generating report…", value = 0, {
+        pages <- vector("list", nrow(rows) + 1L)
+        for (i in seq_len(nrow(rows))) {
+          setProgress(i / (nrow(rows) + 1), detail = paste("Candidate", i, "of", nrow(rows)))
+          row <- rows[i, , drop = FALSE]
+          # Attach protein sequence from orf_table (may not be in gene_prioritised_data)
+          if (!"protein_seq" %in% colnames(row) || is.na(row$protein_seq)) {
+            ps <- ot$protein_seq[match(row$orf_id, ot$orf_id)]
+            if (!length(ps) || all(is.na(ps))) {
+              if (!is.null(md)) ps <- md$protein_seq[match(row$orf_id, md$orf_id)]
+            }
+            row$protein_seq <- if (length(ps) && !is.na(ps[1])) ps[1] else NA_character_
+          }
+          pep_list <- if (!is.null(md))
+            unique(md$matched_peptide[md$orf_id == row$orf_id])
+          else character(0)
+          pages[[i]] <- .rpt_build_page(
+            row       = row,
+            pep_list  = pep_list,
+            rna_mat   = rna_mat,  rna_meta  = rna_meta,
+            gtex_mat  = gtex_mat, gtex_meta = gtex_meta,
+            tcga_mat  = tcga_mat, tcga_meta = tcga_meta,
+            ribo_m    = ribo_m,   ribo_sm   = ribo_sm,
+            rc_mat    = rc_mat,   rc_meta   = rc_meta,
+            logo_uri  = logo_uri, gen_date  = gen_date,
+            log_scale = log_scale
+          )
+        }
+
+        # Summary page
+        setProgress(1, detail = "Building summary page…")
+        w <- current_weights()
+        weight_rows <- lapply(WEIGHT_META, function(m)
+          list(label = m$label, weight = as.numeric(w[[m$id]])))
+        filter_rows <- list(
+          list("PPM threshold (ribo-seq)",      as.character(input$ppm_threshold %||% 1)),
+          list("Min. samples ≥ PPM threshold",  as.character(input$ppm_n_samples %||% "")),
+          list("TPM threshold (RNA-seq)",        as.character(input$tpm_threshold %||% 1)),
+          list("Min. samples ≥ TPM threshold",   as.character(input$tpm_n_samples %||% "")),
+          list("Biotypes shown",                 paste(input$biotype_filter %||% "all", collapse = ", ")),
+          list("Specificity filter",             paste(input$prio_spec_filter %||% "all", collapse = ", "))
+        )
+        d <- app_data_rv()
+        data_info <- list(
+          list("ORF table prepared",   if (!is.null(d$prepared_on)) format(d$prepared_on, "%Y-%m-%d %H:%M") else "—"),
+          list("Total ORFs",           formatC(nrow(ot), big.mark = ",")),
+          list("Ribo-seq samples",     if (!is.null(ribo_m)) as.character(ncol(ribo_m)) else "—"),
+          list("RNA-seq samples",      if (!is.null(rna_mat)) as.character(ncol(rna_mat)) else "—"),
+          list("Candidates selected",  as.character(nrow(rows))),
+          list("Scoring preset",       active_preset() %||% "Custom"),
+          list("Report generated",     gen_date)
+        )
+        pages[[nrow(rows) + 1L]] <- .rpt_build_summary_page(
+          params_list = list(preset = active_preset() %||% "Custom",
+                             weights = weight_rows, filters = filter_rows),
+          data_info   = data_info,
+          logo_uri    = logo_uri,
+          gen_date    = gen_date
+        )
+      })
+
+      writeLines(.rpt_wrap_html(pages), file, useBytes = FALSE)
+    }
+  )
 
   # ── About ─────────────────────────────────────────────────────────────────────
   output$about_data_info <- renderUI({
