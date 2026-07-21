@@ -39,6 +39,11 @@ body {
 
 .navbar-brand span { letter-spacing: .03em; }
 
+/* Bootstrap 5 applies margin-top:-1rem to all <footer> elements (a blockquote
+   citation holdover). Override it so the page footer doesn't overlap the content
+   area above it and appear on top of the candidate detail panel. */
+body > footer { margin-top: 0; }
+
 .btn {
     --bs-btn-padding-x: .5em;
     --bs-btn-padding-y: .5em;
