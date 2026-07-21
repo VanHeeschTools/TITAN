@@ -407,6 +407,8 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   padding: 1rem 1.1rem;
   background: #FFFFFF;
   margin-top: 14px;
+  position: relative;
+  z-index: 1;
 }
 .prio-detail-overline {
   font-size: 10px;

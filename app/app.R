@@ -1621,6 +1621,17 @@ server <- function(input, output, session) {
     prio_row_id(NULL)
   })
 
+  # When the user navigates away from the Prioritisation tab, close the detail
+  # panel. The close button lives inside a renderUI: if the tab is hidden while
+  # the panel is open, Shiny's resume-cycle Shiny.bindAll() pass can clear the
+  # button's input binding without re-registering it (because renderUI didn't
+  # re-execute), leaving the button stuck and non-functional on return.
+  # Resetting prio_row_id here guarantees the panel is empty when the tab is
+  # re-shown, so there is never a stale binding to worry about.
+  observeEvent(input$main_nav, {
+    if (!isTRUE(input$main_nav == "Prioritisation")) prio_row_id(NULL)
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
+
   output$plot_radar <- renderPlotly({
     req(nrow(selected_prio_row()) > 0)
     row <- selected_prio_row()
