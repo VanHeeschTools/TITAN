@@ -7,6 +7,9 @@ app/data/*
 scripts/*
 !scripts/prepare_*.R
 
+# ── Design (design inspiration) ────────────────────────────────────────────
+design/*
+
 # ── R session artefacts ─────────────────────────────────────────────────────────
 .Rhistory
 .RData
