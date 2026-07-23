@@ -34,7 +34,7 @@
   --clr-primary-dark:   #1D4D56;  /* deeper teal for strong emphasis          */
   --clr-success:        #21AE7F;  /* green — positive indicators, score high  */
   --clr-success-dark:   #1A8964;  /* dark green — badge text, dir-plus label  */
-  --clr-success-bg:     #98EBD0;  /* pale green — tumour-only badge fill      */
+  --clr-success-bg:     #CCF5E7;  /* pale green — tumour-only badge fill      */
   --clr-warning:        #F3C677;  /* amber — mid scores, modified indicator   */
   --clr-danger:         #B33E3E;  /* red — low scores, penalty labels         */
   --clr-bg-sidebar:     #F0F7F9;  /* lightest teal tint — sidebar background  */
