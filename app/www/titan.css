@@ -32,11 +32,11 @@
 :root {
   --clr-primary:        #28646E;  /* teal — nav, headers, badges, key text   */
   --clr-primary-dark:   #1D4D56;  /* deeper teal for strong emphasis          */
-  --clr-success:        #00A555;  /* green — positive indicators, score high  */
-  --clr-success-dark:   #007A3E;  /* dark green — badge text, dir-plus label  */
-  --clr-success-bg:     #D0F0E3;  /* pale green — tumour-only badge fill      */
-  --clr-warning:        #D4850A;  /* amber — mid scores, modified indicator   */
-  --clr-danger:         #C0392B;  /* red — low scores, penalty labels         */
+  --clr-success:        #21AE7F;  /* green — positive indicators, score high  */
+  --clr-success-dark:   #1A8964;  /* dark green — badge text, dir-plus label  */
+  --clr-success-bg:     #98EBD0;  /* pale green — tumour-only badge fill      */
+  --clr-warning:        #F3C677;  /* amber — mid scores, modified indicator   */
+  --clr-danger:         #B33E3E;  /* red — low scores, penalty labels         */
   --clr-bg-sidebar:     #F0F7F9;  /* lightest teal tint — sidebar background  */
   --clr-bg-card:        #F0F7F9;  /* very light teal — card headers, panels   */
   --clr-border:         #DAE9EC;  /* teal-tinted border — cards, tiles        */
