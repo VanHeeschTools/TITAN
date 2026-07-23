@@ -108,9 +108,16 @@ off_tissue_risk_html <- function(label) {
 }
 
 spec_badge_html <- function(tumor_only, tumor_enriched) {
-  if (isTRUE(as.logical(tumor_only)))          '<span class="titan-badge titan-badge-specific">Tumor-only</span>'
-  else if (isTRUE(as.logical(tumor_enriched))) '<span class="titan-badge titan-badge-enriched">Tumor-enriched</span>'
-  else                                         '<span class="titan-badge titan-badge-other">Non-specific</span>'
+  to <- as.logical(tumor_only)
+  te <- as.logical(tumor_enriched)
+  if (is.na(to) || is.na(te))
+    '<span class="titan-badge titan-badge-risk" style="background:#adb5bd;color:#ffffff">Unavailable</span>'
+  else if (isTRUE(to))
+    '<span class="titan-badge titan-badge-specific">Tumor-only</span>'
+  else if (isTRUE(te))
+    '<span class="titan-badge titan-badge-enriched">Tumor-enriched</span>'
+  else
+    '<span class="titan-badge titan-badge-other">Non-specific</span>'
 }
 
 biotype_badge_html <- function(biotype) {

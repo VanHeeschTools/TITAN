@@ -45,9 +45,13 @@
 }
 
 .rpt_badge <- function(tumor_only, tumor_enriched) {
-  if (isTRUE(as.logical(tumor_only)))
+  to <- as.logical(tumor_only)
+  te <- as.logical(tumor_enriched)
+  if (is.na(to) || is.na(te))
+    '<span style="background:#adb5bd;color:#ffffff;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Unavailable</span>'
+  else if (isTRUE(to))
     '<span style="background:#d4edda;color:#155724;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Tumor-only</span>'
-  else if (isTRUE(as.logical(tumor_enriched)))
+  else if (isTRUE(te))
     '<span style="background:#cce5ff;color:#004085;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Tumor-enriched</span>'
   else
     '<span style="background:#e2e3e5;color:#383d41;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Non-specific</span>'
@@ -316,7 +320,8 @@
           <tbody>%s</tbody>
         </table>
         <div style="font-size:7.5px;color:black;margin-top:6pt">
-          Low expression threshold: Q3 &lt; 1 TPM. Tissue criticality classifications reflect project-specific safety assumptions, not universal clinical standards.
+          Low expression threshold: Q3 &lt; 1 TPM. Tissue criticality classifications reflect project-specific safety assumptions, not universal clinical standards.<br>
+          <b>Unavailable</b> (grey badge) in the Tumor specificity <i>or</i> Off-tissue risk column means that GTEx DE classification data (<code>de_sig_all</code>) was not provided for this study. The candidate was not evaluated and found non-specific — the upstream data required for evaluation is absent. Do not interpret Unavailable as a reassuring result.
         </div>
       </div>
     </div>

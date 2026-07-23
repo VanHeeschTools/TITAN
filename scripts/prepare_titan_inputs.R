@@ -1,57 +1,118 @@
 #!/usr/bin/env Rscript
 #
 # TITAN — Tumour Immunopeptidomics Target ANnotation
-# Data preparation script: computes all 31 input_fields per ORF candidate
-# and saves the integrated table for the Shiny app.
+# Data preparation script: computes all per-ORF metrics and saves the integrated
+# table for the Shiny app.
 #
-# Run once on HPC before launching the app:
-#   Rscript prepare_titan_inputs.R
+# Usage:
+#   Rscript prepare_titan_inputs.R <config.yaml>
+#   Rscript prepare_titan_inputs.R configs/tnbc_navarra.yaml
 #
-# Outputs:
-#   app/data/titan_orf_table.rds   — full table + per-sample matrices (app input)
-#   app/data/titan_orf_table.csv   — flat CSV version for inspection
+# Outputs (paths resolved from config):
+#   titan_<study_id>.rds  — full table + per-sample matrices (app input)
+#   titan_<study_id>.csv  — flat CSV for inspection
 
 suppressPackageStartupMessages({
   library(tidyverse)
   library(data.table)
-  library(tximport)
   library(matrixStats)
+  library(yaml)
 })
 
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION
+# CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
-BASE_TARGET   <- "/hpc/pmc_oatv/projects/tnbc_navarra/"
-BASE_TITAN    <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/data/"
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 1L)
+  stop("Usage: Rscript prepare_titan_inputs.R <config.yaml>", call. = FALSE)
 
-# Value of coldata$tissue_type that identifies the target tumour samples.
-# All other tissue_type values in the coldata are treated as GTEx normal tissues.
-TARGET_TUMOR_TYPE <- "TNBC"
+config_path <- args[1L]
+if (!file.exists(config_path))
+  stop(sprintf("Config file not found: %s", config_path), call. = FALSE)
 
-PATHS <- list(
-  # Ribo-seq inputs
-  ncorfs        = file.path(BASE_TARGET, "analysis/navarra/riboseq_pipeline/harmonise_orfs/harmonised_orf_table.csv"),
-  ribo_ppm      = file.path(BASE_TARGET, "analysis/navarra/riboseq_pipeline/orf_expression/orf_table_psites_permillion.csv"),
-  ribo_psites   = file.path(BASE_TARGET, "analysis/navarra/riboseq_pipeline/orf_expression/orf_table_psites.csv"),
-  ribocrypt_ext = file.path(BASE_TARGET, "analysis/navarra/riboseq_database_quantification/ribocrypt/ribocrypt_tnbc_quantification_psites_permillion.csv"),
+cfg <- yaml::read_yaml(config_path)
 
-  # Combined GTEx + tumour txi (coldata$tissue_type distinguishes tumour from GTEx tissues)
-  de_sig_all    = file.path(BASE_TARGET, "results/DE/TNBC_polyA_DE_sig_all.tsv"),
-  gtex_txi      = file.path(BASE_TARGET, "analysis/GTEx_DE/rds/TNBC_polyA_GTEx_txi_filtered_raw.RDS"),
-  gtex_coldata  = file.path(BASE_TARGET, "analysis/GTEx_DE/rds/TNBC_polyA_GTEx_coldata_filtered.RDS"),
+# ─────────────────────────────────────────────────────────────────────────────
+# VALIDATION  (fail fast before any heavy data loading)
+# ─────────────────────────────────────────────────────────────────────────────
 
-  # TCGA inputs
-  tcga_txi      = file.path("/hpc/pmc_vanheesch/shared_resources/quantification/TCGA_matched_TN_quantification/gencode_48_quantification/rds_objects/TCGA_matched_TN_gencode48_genes.RDS"),
-  tcga_coldata  = file.path("/hpc/pmc_vanheesch/shared_resources/quantification/TCGA_matched_TN_quantification/gencode_48_quantification/rds_objects/TCGA_matched_TN_coldata.RDS"),
+required_top <- c("study_id", "display_name", "cancer_type", "cohort",
+                  "tumor_type", "paths", "output")
+missing_top <- setdiff(required_top, names(cfg))
+if (length(missing_top))
+  stop(sprintf("Config missing required top-level fields: %s",
+               paste(missing_top, collapse = ", ")), call. = FALSE)
 
-  # Outputs
-  output_dir    = file.path(BASE_TITAN, ""),
-  output_rds    = file.path(BASE_TITAN, "titan_orf_table.rds"),
-  output_csv    = file.path(BASE_TITAN, "titan_orf_table.csv")
-)
+if (is.null(cfg$output$dir))
+  stop("Config missing: output.dir", call. = FALSE)
 
-dir.create(PATHS$output_dir, recursive = TRUE, showWarnings = FALSE)
+required_path_keys <- c("ncorfs", "ribo_ppm", "ribo_psites", "ribocrypt_ext",
+                        "gtex_quant", "gtex_coldata", "tcga_quant", "tcga_coldata")
+missing_keys <- setdiff(required_path_keys, names(cfg$paths))
+if (length(missing_keys))
+  stop(sprintf("Config missing required paths: %s",
+               paste(missing_keys, collapse = ", ")), call. = FALSE)
+
+path_errors <- Filter(nchar, sapply(required_path_keys, function(p) {
+  f <- cfg$paths[[p]]
+  if (!file.exists(f)) sprintf("  paths.%s: %s", p, f) else ""
+}))
+
+# de_sig_all is optional; if provided, the path must exist
+has_de_sig <- !is.null(cfg$paths$de_sig_all)
+if (has_de_sig && !file.exists(cfg$paths$de_sig_all)) {
+  path_errors <- c(path_errors,
+    sprintf("  paths.de_sig_all (specified but not found): %s", cfg$paths$de_sig_all))
+  has_de_sig <- FALSE
+}
+
+# tumor_quant is optional; if provided, the path must exist
+if (!is.null(cfg$paths$tumor_quant) && !file.exists(cfg$paths$tumor_quant))
+  path_errors <- c(path_errors,
+    sprintf("  paths.tumor_quant (specified but not found): %s", cfg$paths$tumor_quant))
+
+if (length(path_errors))
+  stop(sprintf("The following configured paths do not exist on disk:\n%s",
+               paste(path_errors, collapse = "\n")), call. = FALSE)
+
+if (!is.null(cfg$riboseq_condition) && !is.null(cfg$riboseq_condition$pattern)) {
+  missing_rc <- setdiff(c("match_label", "nomatch_label"), names(cfg$riboseq_condition))
+  if (length(missing_rc))
+    stop(sprintf("riboseq_condition.pattern is set but missing: %s",
+                 paste(missing_rc, collapse = ", ")), call. = FALSE)
+}
+
+for (th_name in c("expression", "gtex_q3")) {
+  v <- cfg$thresholds[[th_name]]
+  if (!is.null(v) && (!is.numeric(v) || v <= 0))
+    stop(sprintf("thresholds.%s must be a positive number (got: %s)", th_name, v), call. = FALSE)
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESOLVE CONFIG VALUES
+# ─────────────────────────────────────────────────────────────────────────────
+
+TARGET_TUMOR_TYPE <- cfg$tumor_type
+target_label      <- cfg$target_label %||% cfg$tumor_type
+expr_threshold    <- cfg$thresholds$expression %||% 1
+gtex_q3_threshold <- cfg$thresholds$gtex_q3   %||% 1
+
+output_rds <- file.path(cfg$output$dir,
+                        cfg$output$rds %||% paste0("titan_", cfg$study_id, ".rds"))
+output_csv <- file.path(cfg$output$dir,
+                        cfg$output$csv %||% paste0("titan_", cfg$study_id, ".csv"))
+
+dir.create(cfg$output$dir, recursive = TRUE, showWarnings = FALSE)
+
+if (!has_de_sig)
+  warning(sprintf(
+    paste0("de_sig_all not configured for study '%s'.\n",
+           "  GTEX_DE_sig_in_all, GTEX_tumor_only, and GTEX_tumor_enriched\n",
+           "  will be NA for ALL candidates in this study's output."),
+    cfg$study_id), call. = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPER FUNCTIONS
@@ -59,7 +120,7 @@ dir.create(PATHS$output_dir, recursive = TRUE, showWarnings = FALSE)
 
 strip_ensg_version <- function(x) sub("\\..*", "", x)
 
-# Computes num_samples, pct_samples, median, max from a gene/ORF × sample matrix
+# Computes num_samples, pct_samples, median, max from a gene/ORF × sample matrix.
 compute_expression_metrics <- function(mat, threshold = 1) {
   mat <- as.matrix(mat)
   data.frame(
@@ -71,9 +132,8 @@ compute_expression_metrics <- function(mat, threshold = 1) {
   )
 }
 
-# Classifies external ribocrypt sample names as primary tissue or cell line.
-# Primary: samples prefixed with "primary_", "hepatocyte_", "Myoblast_",
-#          "HSPC_", or "huvec_" — all others are treated as cell lines.
+# Classifies external RiboCrypt sample names as primary tissue or cell line.
+# These prefixes reflect a fixed convention of the external RiboCrypt database.
 classify_ribocrypt_samples <- function(sample_names) {
   primary_patterns <- c("^primary_", "^hepatocyte_", "^Myoblast_", "^HSPC_", "^huvec_")
   is_primary <- sapply(sample_names, function(s) {
@@ -82,39 +142,71 @@ classify_ribocrypt_samples <- function(sample_names) {
   list(primary = sample_names[is_primary], cell_line = sample_names[!is_primary])
 }
 
-# Infer RMS ribo-seq sample condition from sample name
+# Infers ribo-seq sample condition from sample name using the study config pattern.
 get_riboseq_condition <- function(sample_names) {
-  ifelse(grepl("IFNg|IFN", sample_names, ignore.case = TRUE), "IFNg", "Unstimulated")
+  rc <- cfg$riboseq_condition
+  if (is.null(rc) || is.null(rc$pattern))
+    return(rep(TARGET_TUMOR_TYPE, length(sample_names)))
+  ifelse(grepl(rc$pattern, sample_names, ignore.case = TRUE),
+         rc$match_label, rc$nomatch_label)
+}
+
+# Loads an expression matrix from an RDS txi object or a flat CSV/TSV file.
+# Returns a numeric matrix with genes as rows and samples as columns.
+# For .rds: expects a txi-style list with an $abundance element (matrix).
+# For .csv/.tsv: expects gene IDs in the first column (used as rownames).
+load_expression_data <- function(path) {
+  ext <- tolower(tools::file_ext(path))
+  if (ext == "rds") {
+    obj <- readRDS(path)
+    if (!is.list(obj) || is.null(obj$abundance) || !is.matrix(obj$abundance))
+      stop(sprintf(
+        "RDS file does not contain a txi-style list with a matrix $abundance element:\n  %s",
+        path), call. = FALSE)
+    obj$abundance
+  } else if (ext %in% c("csv", "tsv")) {
+    sep <- if (ext == "csv") "," else "\t"
+    df  <- read.delim(path, sep = sep, check.names = FALSE, row.names = 1)
+    as.matrix(df)
+  } else {
+    stop(sprintf(
+      "Unrecognized expression file extension '.%s' — expected .rds, .csv, or .tsv:\n  %s",
+      ext, path), call. = FALSE)
+  }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 1 — ORF BACKBONE
 # ─────────────────────────────────────────────────────────────────────────────
 
-cat("=== TITAN input preparation ===\n\n")
+cat("=== TITAN input preparation ===\n")
+cat(sprintf("    Study : %s (%s)\n", cfg$display_name, cfg$study_id))
+cat(sprintf("    Config: %s\n\n", config_path))
 cat("[1/6] Loading ncORF candidate table...\n")
 
-ncorfs <- fread(PATHS$ncorfs, data.table = FALSE)
+ncorfs <- fread(cfg$paths$ncorfs, data.table = FALSE)
 ncorfs$gene_id_clean <- strip_ensg_version(ncorfs$gene_id)
 
 cat(sprintf("      %d ncORF candidates, %d unique genes\n",
             nrow(ncorfs), n_distinct(ncorfs$gene_id_clean)))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 2 — TARGET TRANSLATION (RMS ribo-seq)
+# SECTION 2 — TARGET TRANSLATION (ribo-seq)
 # ─────────────────────────────────────────────────────────────────────────────
 
-cat("[2/6] Computing target translation metrics (RMS ribo-seq)...\n")
+cat(sprintf("[2/6] Computing target translation metrics (%s ribo-seq)...\n", target_label))
 
-ribo_ppm    <- fread(PATHS$ribo_ppm,    data.table = FALSE)
-ribo_psites <- fread(PATHS$ribo_psites, data.table = FALSE)
+ribo_ppm    <- fread(cfg$paths$ribo_ppm,    data.table = FALSE)
+ribo_psites <- fread(cfg$paths$ribo_psites, data.table = FALSE)
 
 rownames(ribo_ppm)    <- ribo_ppm$orf_id;    ribo_ppm$orf_id    <- NULL
 rownames(ribo_psites) <- ribo_psites$orf_id; ribo_psites$orf_id <- NULL
 
-# Shorten sample IDs for display (keep leading numeric prefix only)
-ribo_ppm    <- rename_with(ribo_ppm,    ~ sub("-SL_.*|-EW_.*|.*TIS-|.*ORG-", "", .x))
-ribo_psites <- rename_with(ribo_psites, ~ sub("-SL_.*|-EW_.*|.*TIS-|.*ORG-", "", .x))
+# Shorten sample IDs for display using study-specific regex (null = skip)
+if (!is.null(cfg$sample_id_regex)) {
+  ribo_ppm    <- rename_with(ribo_ppm,    ~ sub(cfg$sample_id_regex, "", .x))
+  ribo_psites <- rename_with(ribo_psites, ~ sub(cfg$sample_id_regex, "", .x))
+}
 
 candidate_ids <- ncorfs$orf_id
 common_ribo   <- intersect(candidate_ids, rownames(ribo_ppm))
@@ -122,7 +214,7 @@ common_ribo   <- intersect(candidate_ids, rownames(ribo_ppm))
 ribo_ppm_mat    <- as.matrix(ribo_ppm[common_ribo, ])
 ribo_psites_mat <- as.matrix(ribo_psites[common_ribo, ])
 
-transl_metrics <- compute_expression_metrics(ribo_ppm_mat, threshold = 1) %>%
+transl_metrics <- compute_expression_metrics(ribo_ppm_mat, threshold = expr_threshold) %>%
   rename(
     target_translation_num_samples = num_samples,
     target_translation_pct_samples = pct_samples,
@@ -140,16 +232,15 @@ ribo_sample_meta <- data.frame(
 )
 
 cat(sprintf("      %d ORFs with ribo-seq data, %d samples\n",
-            nrow(transl_metrics),
-            nrow(ribo_sample_meta)))
+            nrow(transl_metrics), nrow(ribo_sample_meta)))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — RIBOCRYPT EXTERNAL (primary tissue / cell line)
 # ─────────────────────────────────────────────────────────────────────────────
 
-cat("[3/6] Computing ribocrypt external metrics...\n")
+cat("[3/6] Computing RiboCrypt external metrics...\n")
 
-ribocrypt_ext <- fread(PATHS$ribocrypt_ext, data.table = FALSE)
+ribocrypt_ext <- fread(cfg$paths$ribocrypt_ext, data.table = FALSE)
 rownames(ribocrypt_ext) <- ribocrypt_ext$orf_id; ribocrypt_ext$orf_id <- NULL
 
 sample_classes <- classify_ribocrypt_samples(colnames(ribocrypt_ext))
@@ -160,13 +251,13 @@ cat(sprintf("      %d cell-line samples: %s...\n",
             length(sample_classes$cell_line),
             paste(head(sample_classes$cell_line, 3), collapse = ", ")))
 
-common_rc  <- intersect(candidate_ids, rownames(ribocrypt_ext))
-rc_mat     <- as.matrix(ribocrypt_ext[common_rc, ])
+common_rc <- intersect(candidate_ids, rownames(ribocrypt_ext))
+rc_mat    <- as.matrix(ribocrypt_ext[common_rc, ])
 
 primary_mat   <- rc_mat[, sample_classes$primary,   drop = FALSE]
 cell_line_mat <- rc_mat[, sample_classes$cell_line, drop = FALSE]
 
-primary_metrics <- compute_expression_metrics(primary_mat, threshold = 1) %>%
+primary_metrics <- compute_expression_metrics(primary_mat, threshold = expr_threshold) %>%
   rename(
     ribocrypt_primary_num_samples = num_samples,
     ribocrypt_primary_pct_samples = pct_samples,
@@ -175,7 +266,7 @@ primary_metrics <- compute_expression_metrics(primary_mat, threshold = 1) %>%
   ) %>%
   mutate(orf_id = rownames(.))
 
-cell_line_metrics <- compute_expression_metrics(cell_line_mat, threshold = 1) %>%
+cell_line_metrics <- compute_expression_metrics(cell_line_mat, threshold = expr_threshold) %>%
   rename(
     `ribocrypt_cell-line_num_samples` = num_samples,
     `ribocrypt_cell-line_pct_samples` = pct_samples,
@@ -184,7 +275,7 @@ cell_line_metrics <- compute_expression_metrics(cell_line_mat, threshold = 1) %>
   ) %>%
   mutate(orf_id = rownames(.))
 
-ribocrypt_mat         <- rc_mat   # ORF × sample matrix kept for per-sample plots
+ribocrypt_mat         <- rc_mat
 ribocrypt_sample_meta <- data.frame(
   sample_id = colnames(ribocrypt_mat),
   group     = ifelse(colnames(ribocrypt_mat) %in% sample_classes$primary,
@@ -195,41 +286,68 @@ rm(ribocrypt_ext, primary_mat, cell_line_mat); gc()
 cat("      Done.\n")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 — TARGET EXPRESSION + GTEX METRICS (single combined txi)
+# SECTION 4 — TARGET EXPRESSION + GTEX METRICS
 #
-# The txi object contains both tumour samples (tissue_type == TARGET_TUMOR_TYPE)
-# and GTEx normal tissue samples (all other tissue_type values).
+# paths.gtex_quant may be either:
+#   (a) A combined object containing both tumour (tissue_type == TARGET_TUMOR_TYPE)
+#       and GTEx normal samples — the default when paths.tumor_quant is absent.
+#   (b) A GTEx-only object, paired with a separate paths.tumor_quant file that
+#       contains only tumour samples (all columns used, no coldata needed).
 # ─────────────────────────────────────────────────────────────────────────────
 
-cat("[4/6] Loading combined txi (~1.2 GB, may take a few minutes)...\n")
+has_separate_tumor <- !is.null(cfg$paths$tumor_quant)
 
-txi_gtex     <- readRDS(PATHS$gtex_txi)
-coldata_gtex <- readRDS(PATHS$gtex_coldata)
+cat("[4/6] Loading GTEx and tumour quantification data...\n")
 
-# Validate that the required column is present
+coldata_gtex <- readRDS(cfg$paths$gtex_coldata)
 stopifnot("tissue_type" %in% colnames(coldata_gtex))
 
-tumor_mask <- coldata_gtex$tissue_type %in% TARGET_TUMOR_TYPE
-gtex_mask  <- coldata_gtex$tissue_type != TARGET_TUMOR_TYPE & !is.na(coldata_gtex$tissue_type)
+if (has_separate_tumor) {
+  # (b) Standalone GTEx — all coldata rows with a non-NA tissue_type are GTEx normals.
+  # Intersect with matrix columns: the coldata may be a filtered subset of a larger
+  # quantification object, so not all coldata sample IDs are guaranteed to be present.
+  gtex_full_m           <- load_expression_data(cfg$paths$gtex_quant)
+  rownames(gtex_full_m) <- strip_ensg_version(rownames(gtex_full_m))
+  gtex_mask             <- !is.na(coldata_gtex$tissue_type)
+  gtex_ids              <- intersect(coldata_gtex$sample_id[gtex_mask], colnames(gtex_full_m))
+  gtex_tpm_m            <- gtex_full_m[, gtex_ids, drop = FALSE]
+  rm(gtex_full_m)
 
-cat(sprintf("      Tumour samples (%s): %d\n", TARGET_TUMOR_TYPE, sum(tumor_mask)))
-cat(sprintf("      GTEx normal samples: %d across %d tissues\n",
-            sum(gtex_mask),
-            n_distinct(coldata_gtex$tissue_type[gtex_mask])))
+  tumor_tpm_m           <- load_expression_data(cfg$paths$tumor_quant)
+  rownames(tumor_tpm_m) <- strip_ensg_version(rownames(tumor_tpm_m))
+  tumor_ids             <- colnames(tumor_tpm_m)
 
-# Strip ENSG version from txi row names once (applies to both subsets)
-txi_gene_ids <- strip_ensg_version(rownames(txi_gtex$abundance))
+  cat(sprintf("      Tumour samples (%s): %d (separate quantification)\n",
+              TARGET_TUMOR_TYPE, length(tumor_ids)))
+  cat(sprintf("      GTEx normal samples: %d across %d tissues\n",
+              length(gtex_ids),
+              n_distinct(coldata_gtex$tissue_type[gtex_mask])))
+} else {
+  # (a) Combined — split by tissue_type in coldata
+  combined_m           <- load_expression_data(cfg$paths$gtex_quant)
+  rownames(combined_m) <- strip_ensg_version(rownames(combined_m))
+
+  tumor_mask <- coldata_gtex$tissue_type %in% TARGET_TUMOR_TYPE
+  gtex_mask  <- coldata_gtex$tissue_type != TARGET_TUMOR_TYPE & !is.na(coldata_gtex$tissue_type)
+
+  cat(sprintf("      Tumour samples (%s): %d\n", TARGET_TUMOR_TYPE, sum(tumor_mask)))
+  cat(sprintf("      GTEx normal samples: %d across %d tissues\n",
+              sum(gtex_mask),
+              n_distinct(coldata_gtex$tissue_type[gtex_mask])))
+
+  tumor_ids   <- coldata_gtex$sample_id[tumor_mask]
+  tumor_tpm_m <- combined_m[, tumor_ids, drop = FALSE]
+  gtex_ids    <- coldata_gtex$sample_id[gtex_mask]
+  gtex_tpm_m  <- combined_m[, gtex_ids, drop = FALSE]
+  rm(combined_m)
+}
 
 # ── 4a. Target expression (tumour samples) ───────────────────────────────────
-
-tumor_ids   <- coldata_gtex$sample_id[tumor_mask]
-tumor_tpm_m <- txi_gtex$abundance[, tumor_ids, drop = FALSE]
-rownames(tumor_tpm_m) <- txi_gene_ids
 
 gene_ids_available <- intersect(ncorfs$gene_id_clean, rownames(tumor_tpm_m))
 rna_tpm_sub <- tumor_tpm_m[gene_ids_available, , drop = FALSE]
 
-expr_metrics <- compute_expression_metrics(rna_tpm_sub, threshold = 1) %>%
+expr_metrics <- compute_expression_metrics(rna_tpm_sub, threshold = expr_threshold) %>%
   dplyr::rename(
     target_expression_num_samples = num_samples,
     target_expression_pct_samples = pct_samples,
@@ -249,45 +367,44 @@ cat(sprintf("      %d genes with target expression data (%d samples)\n",
 
 # ── 4b. GTEx DE classification (from pre-computed DE table) ──────────────────
 
-de_sig <- read.delim(PATHS$de_sig_all, check.names = FALSE)
-de_sig$gene_id_clean <- strip_ensg_version(de_sig$gene_id)
-
-gtex_de_metrics <- de_sig %>%
-  transmute(
-    gene_id_clean,
-    GTEX_DE_sig_in_all  = sig_in_all,
-    GTEX_tumor_only     = low_all_tissues,
-    GTEX_tumor_enriched = Q3_GTEx < 1
-  )
-
-cat(sprintf("      %d genes with GTEx DE classification\n", nrow(gtex_de_metrics)))
+if (has_de_sig) {
+  de_sig <- read.delim(cfg$paths$de_sig_all, check.names = FALSE)
+  de_sig$gene_id_clean <- strip_ensg_version(de_sig$gene_id)
+  gtex_de_metrics <- de_sig %>%
+    transmute(
+      gene_id_clean,
+      GTEX_DE_sig_in_all  = sig_in_all,
+      GTEX_tumor_only     = low_all_tissues,
+      GTEX_tumor_enriched = Q3_GTEx < 1
+    )
+  cat(sprintf("      %d genes with GTEx DE classification\n", nrow(gtex_de_metrics)))
+} else {
+  gtex_de_metrics <- NULL
+  cat("      WARNING: de_sig_all not provided — GTEX_DE_sig_in_all, GTEX_tumor_only,\n")
+  cat("               GTEX_tumor_enriched will be NA for all candidates.\n")
+}
 
 # ── 4c. GTEx per-tissue median TPM (normal samples only) ─────────────────────
-
-gtex_ids   <- coldata_gtex$sample_id[gtex_mask]
-gtex_tpm_m <- txi_gtex$abundance[, gtex_ids, drop = FALSE]
-rownames(gtex_tpm_m) <- txi_gene_ids
 
 gtex_tissues <- unique(coldata_gtex$tissue_type[gtex_mask])
 
 tissue_med_mat <- sapply(gtex_tissues, function(tt) {
-  samp <- coldata_gtex$sample_id[coldata_gtex$tissue_type %in% tt]
+  samp <- intersect(coldata_gtex$sample_id[coldata_gtex$tissue_type %in% tt], colnames(gtex_tpm_m))
   rowMedians(as.matrix(gtex_tpm_m[, samp, drop = FALSE]), na.rm = TRUE)
 })
 rownames(tissue_med_mat) <- rownames(gtex_tpm_m)
 
-
 q3_mat <- sapply(gtex_tissues, function(tt) {
-  samp <- coldata_gtex$sample_id[coldata_gtex$tissue_type %in% tt]
+  samp <- intersect(coldata_gtex$sample_id[coldata_gtex$tissue_type %in% tt], colnames(gtex_tpm_m))
   rowQuantiles(as.matrix(gtex_tpm_m[, samp, drop = FALSE]), probs = 0.75, na.rm = TRUE)
 })
 rownames(q3_mat) <- rownames(gtex_tpm_m)
 
-# Per-gene: tissue=Q3TPM pairs ("|"-separated) where Q3 > 1 TPM
+# Per-gene: tissue=Q3TPM pairs ("|"-separated) where Q3 > gtex_q3_threshold
 gtex_tissue_q3_gt1 <- data.frame(
   gene_id_clean = rownames(q3_mat),
   GTEX_tissues_q3_gt1 = apply(q3_mat, 1, function(x) {
-    hits <- x[!is.na(x) & x > 1]
+    hits <- x[!is.na(x) & x > gtex_q3_threshold]
     if (length(hits) == 0L) NA_character_
     else paste(paste0(names(hits), "=", round(hits, 1)), collapse = "|")
   }),
@@ -300,84 +417,94 @@ gtex_tissue_stats <- data.frame(
   GTEX_median_TPM     = rowMedians(gtex_tpm_m, na.rm = TRUE)
 )
 
+# Assemble gtex_data; the DE columns are handled differently depending on whether
+# de_sig_all was available for this study:
+#   - Present: join, then apply replace_na(FALSE) for per-gene join misses only
+#   - Absent:  set all three DE columns to NA for every row (not replace_na'd to FALSE)
 gtex_data <- gtex_tissue_stats %>%
-  left_join(gtex_de_metrics,     by = "gene_id_clean") %>%
-  left_join(gtex_tissue_q3_gt1,  by = "gene_id_clean") %>%
-  # Only replace NA for logical / numeric columns — leave GTEX_tissues_q3_gt1 as NA
-  mutate(across(c(GTEX_max_median_TPM, GTEX_median_TPM), ~ replace_na(.x, 0)),
-         across(c(GTEX_DE_sig_in_all, GTEX_tumor_only, GTEX_tumor_enriched),
-                ~ replace_na(.x, FALSE)))
+  left_join(gtex_tissue_q3_gt1, by = "gene_id_clean") %>%
+  mutate(across(c(GTEX_max_median_TPM, GTEX_median_TPM), ~ replace_na(.x, 0)))
+
+if (!is.null(gtex_de_metrics)) {
+  gtex_data <- gtex_data %>%
+    left_join(gtex_de_metrics, by = "gene_id_clean") %>%
+    mutate(across(c(GTEX_DE_sig_in_all, GTEX_tumor_only, GTEX_tumor_enriched),
+                  ~ replace_na(.x, FALSE)))
+} else {
+  gtex_data <- gtex_data %>%
+    mutate(GTEX_DE_sig_in_all  = NA,
+           GTEX_tumor_only     = NA,
+           GTEX_tumor_enriched = NA)
+}
 
 # Subset GTEx matrix to candidate genes for per-sample plots
 gtex_gene_ids_avail <- intersect(ncorfs$gene_id_clean, rownames(gtex_tpm_m))
-gtex_tpm_sub        <- gtex_tpm_m[gtex_gene_ids_avail,
-                                   coldata_gtex$sample_id[gtex_mask], drop = FALSE]
+gtex_tpm_sub        <- gtex_tpm_m[gtex_gene_ids_avail, gtex_ids, drop = FALSE]
 gtex_sample_meta    <- data.frame(
-  sample_id   = coldata_gtex$sample_id[gtex_mask],
-  tissue_type = coldata_gtex$tissue_type[gtex_mask],
+  sample_id   = gtex_ids,
+  tissue_type = coldata_gtex$tissue_type[match(gtex_ids, coldata_gtex$sample_id)],
   stringsAsFactors = FALSE
 )
 cat(sprintf("      GTEx sub-matrix: %d genes × %d samples\n",
             nrow(gtex_tpm_sub), ncol(gtex_tpm_sub)))
 
-rm(txi_gtex, tumor_tpm_m, gtex_tpm_m, tissue_med_mat, gtex_de_metrics, gtex_tissue_q3_gt1,
+rm(tumor_tpm_m, gtex_tpm_m, tissue_med_mat, gtex_de_metrics, gtex_tissue_q3_gt1,
    gtex_tissue_stats); gc()
 cat("      GTEx computation complete.\n")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 6 — TCGA QUANTIFICATION
+# SECTION 5 — TCGA QUANTIFICATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-cat("[5/6] Computing TCGA expression metrics (514 samples via tximport)...\n")
+cat("[5/6] Computing TCGA expression metrics...\n")
 
-
-txi_tcga <- readRDS(PATHS$tcga_txi)
-tcga_tpm <- txi_tcga$abundance   # gene × sample (no-version ENSG IDs)
+tcga_tpm <- load_expression_data(cfg$paths$tcga_quant)
 rownames(tcga_tpm) <- strip_ensg_version(rownames(tcga_tpm))
-ids       <- colnames(tcga_tpm)
+ids <- colnames(tcga_tpm)
 
 # TCGA barcode: -01x = primary tumour, -11x/-10x = normal/peritumoral
+# These are fixed TCGA standard barcode conventions, not study-specific.
 is_tumor  <- grepl("-0[1-9][A-Z]$", ids)
 is_normal <- grepl("-1[0-1][A-Z]$", ids)
 cat(sprintf("      Tumour: %d  Normal: %d\n", sum(is_tumor), sum(is_normal)))
 
-tcga_tumor_metrics <- compute_expression_metrics(tcga_tpm[, is_tumor,  drop = FALSE]) %>%
+tcga_tumor_metrics <- compute_expression_metrics(tcga_tpm[, is_tumor,  drop = FALSE],
+                                                  threshold = expr_threshold) %>%
   dplyr::rename(TCGA_tumor_num_samples = num_samples, TCGA_tumor_pct_samples = pct_samples,
-         TCGA_tumor_median_TPM  = median_value, TCGA_tumor_max_TPM    = max_value) %>%
+                TCGA_tumor_median_TPM  = median_value, TCGA_tumor_max_TPM    = max_value) %>%
   mutate(gene_id_clean = rownames(.))
 
-tcga_normal_metrics <- compute_expression_metrics(tcga_tpm[, is_normal, drop = FALSE]) %>%
+tcga_normal_metrics <- compute_expression_metrics(tcga_tpm[, is_normal, drop = FALSE],
+                                                   threshold = expr_threshold) %>%
   dplyr::rename(TCGA_normal_num_samples = num_samples, TCGA_normal_pct_samples = pct_samples,
-         TCGA_normal_median_TPM  = median_value, TCGA_normal_max_TPM    = max_value) %>%
+                TCGA_normal_median_TPM  = median_value, TCGA_normal_max_TPM    = max_value) %>%
   mutate(gene_id_clean = rownames(.))
 
-# Subset TCGA matrix to candidate genes × tumour+normal samples for per-sample plots
-tcga_coldata        <- readRDS(PATHS$tcga_coldata)
+tcga_coldata        <- readRDS(cfg$paths$tcga_coldata)
 tcga_gene_ids_avail <- intersect(ncorfs$gene_id_clean, rownames(tcga_tpm))
 keep_tcga           <- is_tumor | is_normal
 tcga_tpm_sub        <- tcga_tpm[tcga_gene_ids_avail, keep_tcga, drop = FALSE]
 
-# Enrich sample metadata with cancer type from coldata (fall back to "Unknown" if not found)
-ids_kept     <- colnames(tcga_tpm)[keep_tcga]
-cd_idx       <- match(ids_kept, tcga_coldata$sample_id)
-cancer_type  <- ifelse(!is.na(cd_idx), tcga_coldata$tissue_type[cd_idx], "Unknown")
-sample_type  <- ifelse(is_tumor[keep_tcga], "Tumor", "Normal")
+ids_kept    <- colnames(tcga_tpm)[keep_tcga]
+cd_idx      <- match(ids_kept, tcga_coldata$sample_id)
+cancer_type <- ifelse(!is.na(cd_idx), tcga_coldata$tissue_type[cd_idx], "Unknown")
+sample_type <- ifelse(is_tumor[keep_tcga], "Tumor", "Normal")
 tcga_sample_meta <- data.frame(
   sample_id   = ids_kept,
   tissue_type = cancer_type,
   sample_type = sample_type,
-  group       = paste(cancer_type, sample_type),   # e.g. "LUAD Tumor", "BRCA Normal"
+  group       = paste(cancer_type, sample_type),
   stringsAsFactors = FALSE
 )
 cat(sprintf("      TCGA sub-matrix: %d genes × %d samples (%d tumour, %d normal, %d cancer types)\n",
             nrow(tcga_tpm_sub), ncol(tcga_tpm_sub), sum(is_tumor), sum(is_normal),
             n_distinct(cancer_type)))
 
-rm(txi_tcga, tcga_tpm); gc()
+rm(tcga_tpm); gc()
 cat("      TCGA computation complete.\n")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 7 — ASSEMBLE & SAVE
+# SECTION 6 — ASSEMBLE & SAVE
 # ─────────────────────────────────────────────────────────────────────────────
 
 cat("[6/6] Assembling final table and saving...\n")
@@ -389,15 +516,13 @@ titan_table <- ncorfs %>%
     start_codon, stop_codon, chr, orf_start, orf_end, strand,
     tx_id, orf_biotypes_all, caller_count, gene_id_clean
   ) %>%
-  # ORF-level joins (ribo-seq)
-  left_join(transl_metrics,    by = "orf_id") %>%
-  left_join(primary_metrics,   by = "orf_id") %>%
-  left_join(cell_line_metrics, by = "orf_id") %>%
-  # Gene-level joins (RNA-seq)
-  left_join(expr_metrics,          by = "gene_id_clean") %>%
-  left_join(gtex_data,     by = "gene_id_clean") %>%
-  left_join(tcga_tumor_metrics,    by = "gene_id_clean") %>%
-  left_join(tcga_normal_metrics,   by = "gene_id_clean")
+  left_join(transl_metrics,       by = "orf_id") %>%
+  left_join(primary_metrics,      by = "orf_id") %>%
+  left_join(cell_line_metrics,    by = "orf_id") %>%
+  left_join(expr_metrics,         by = "gene_id_clean") %>%
+  left_join(gtex_data,            by = "gene_id_clean") %>%
+  left_join(tcga_tumor_metrics,   by = "gene_id_clean") %>%
+  left_join(tcga_normal_metrics,  by = "gene_id_clean")
 
 cat(sprintf("      Final table: %d ORFs × %d columns\n",
             nrow(titan_table), ncol(titan_table)))
@@ -406,7 +531,14 @@ cat(sprintf("      Final table: %d ORFs × %d columns\n",
 cat("\nCoverage summary:\n")
 pct <- function(x) sprintf("%.1f%%", 100 * mean(!is.na(x)))
 cat(sprintf("  target_expression      : %s have data\n", pct(titan_table$target_expression_median_TPM)))
-cat(sprintf("  GTEX_DE_sig_in_all     : %s have data\n", pct(titan_table$GTEX_DE_sig_in_all)))
+if (is.null(cfg$paths$de_sig_all)) {
+  cat("  GTEX_DE_sig_in_all     : de_sig_all not provided for this study — all NA\n")
+  cat("  GTEX_tumor_only        : de_sig_all not provided for this study — all NA\n")
+  cat("  GTEX_tumor_enriched    : de_sig_all not provided for this study — all NA\n")
+} else {
+  cat(sprintf("  GTEX_DE_sig_in_all     : %s have data\n", pct(titan_table$GTEX_DE_sig_in_all)))
+  cat(sprintf("  GTEX_tumor_only        : %s have data\n", pct(titan_table$GTEX_tumor_only)))
+}
 cat(sprintf("  GTEX_max_median_TPM    : %s have data\n", pct(titan_table$GTEX_max_median_TPM)))
 cat(sprintf("  TCGA_tumor_median_TPM  : %s have data\n", pct(titan_table$TCGA_tumor_median_TPM)))
 cat(sprintf("  target_translation_PPM : %s have data\n", pct(titan_table$target_translation_median_PPM)))
@@ -415,25 +547,25 @@ cat(sprintf("  ribocrypt_primary_PPM  : %s have data\n", pct(titan_table$ribocry
 # ─── Save ────────────────────────────────────────────────────────────────────
 app_data <- list(
   orf_table             = titan_table,
-  ribo_ppm_samples      = ribo_ppm_mat,      # ORF × RMS-sample matrix (ribo-seq per-sample plots)
-  rna_tpm_mat           = rna_tpm_sub,       # gene × RMS-sample matrix (RNA-seq per-sample + filtering)
+  ribo_ppm_samples      = ribo_ppm_mat,
+  rna_tpm_mat           = rna_tpm_sub,
   ribo_sample_meta      = ribo_sample_meta,
   rna_sample_meta       = rna_sample_meta,
-  gtex_tpm_mat          = gtex_tpm_sub,      # gene × GTEx-sample matrix (per-sample expression plots)
+  gtex_tpm_mat          = gtex_tpm_sub,
   gtex_sample_meta      = gtex_sample_meta,
-  tcga_tpm_mat          = tcga_tpm_sub,      # gene × TCGA-sample matrix (tumour+normal per-sample plots)
+  tcga_tpm_mat          = tcga_tpm_sub,
   tcga_sample_meta      = tcga_sample_meta,
-  ribocrypt_mat         = ribocrypt_mat,     # ORF × Ribocrypt-sample matrix (per-sample translation plots)
+  ribocrypt_mat         = ribocrypt_mat,
   ribocrypt_sample_meta = ribocrypt_sample_meta,
   ribocrypt_meta        = list(
     primary_samples   = sample_classes$primary,
     cell_line_samples = sample_classes$cell_line
   ),
+  study_id    = cfg$study_id,
   prepared_on = Sys.time()
 )
 
-saveRDS(app_data, PATHS$output_rds)
-write.csv(titan_table, PATHS$output_csv, row.names = FALSE)
+saveRDS(app_data, output_rds)
+write.csv(titan_table, output_csv, row.names = FALSE)
 
-cat(sprintf("\nDone!\n  %s\n  %s\n", PATHS$output_rds, PATHS$output_csv))
-
+cat(sprintf("\nDone!\n  %s\n  %s\n", output_rds, output_csv))

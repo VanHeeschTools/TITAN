@@ -122,12 +122,12 @@ scoring_sidebar_ui <- function() {
       tags$p(class = "text-muted small mb-1 fw-semibold", "Tumor specificity filter"),
       pickerInput(
         "prio_spec_filter", label = NULL,
-        choices  = c("Tumor-only", "Tumor-enriched", "Non-specific"),
-        selected = c("Tumor-only", "Tumor-enriched", "Non-specific"),
+        choices  = c("Tumor-only", "Tumor-enriched", "Non-specific", "Unavailable"),
+        selected = c("Tumor-only", "Tumor-enriched", "Non-specific", "Unavailable"),
         multiple = TRUE,
         options  = pickerOptions(
           actionsBox = TRUE, container = "body", dropupAuto = FALSE,
-          selectedTextFormat = "count > 2", countSelectedText = "{0} / {1} types"
+          selectedTextFormat = "count > 3", countSelectedText = "{0} / {1} types"
         )
       ),
       tags$p(class = "text-muted small mb-1 fw-semibold mt-2", "Off-tissue risk filter"),
@@ -1356,9 +1356,10 @@ server <- function(input, output, session) {
     df <- gpd %>%
       mutate(
         spec_category = case_when(
-          GTEX_tumor_only %in% TRUE     ~ "Tumor-only",
-          GTEX_tumor_enriched %in% TRUE ~ "Tumor-enriched",
-          TRUE                          ~ "Non-specific"
+          is.na(GTEX_tumor_only) | is.na(GTEX_tumor_enriched) ~ "Unavailable",
+          GTEX_tumor_only %in% TRUE                           ~ "Tumor-only",
+          GTEX_tumor_enriched %in% TRUE                       ~ "Tumor-enriched",
+          TRUE                                                ~ "Non-specific"
         ),
         score_html   = vapply(priority_score, score_bar_html, character(1)),
         spec_html    = mapply(spec_badge_html, GTEX_tumor_only, GTEX_tumor_enriched),
