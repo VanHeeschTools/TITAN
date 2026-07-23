@@ -1,6 +1,6 @@
 <img src="app/www/titan_logo_blue.svg" alt="TITAN" height="72">
 
-**Tumour Immunopeptidomics Target ANnotation**
+**Tumor Immunopeptidomics Target Atlas of Non‑canonical ORFs**
 
 A Shiny app for prioritising non-canonical ORF (ncORF) peptide candidates identified by immunopeptidomics mass spectrometry. TITAN integrates ribo-seq translation evidence, RNA-seq tumour expression, GTEx normal-tissue specificity, TCGA pan-cancer coverage and Ribocrypt external translation data into a single scored, interactive candidate table.
 
