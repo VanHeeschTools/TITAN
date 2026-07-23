@@ -1,4 +1,4 @@
-## TITAN - Tumor Immunopeptidomics Target ANnotation
+## TITAN - Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs
 ## Shiny app for prioritising ncORF-derived peptide candidates
 ##
 ## Usage:
@@ -140,10 +140,6 @@ scoring_sidebar_ui <- function() {
           actionsBox = TRUE, container = "body", dropupAuto = FALSE,
           selectedTextFormat = "count > 4", countSelectedText = "{0} / {1} tiers"
         )
-      ),
-      checkboxInput("gtex_max_tpm_filter",
-        label = tags$span(class = "small", "Exclude GTEx max tissue median TPM > 1"),
-        value = FALSE
       ),
       hr(class = "my-2"),
 
@@ -357,8 +353,7 @@ ui <- page_navbar(
         tags$img(src = "titan_logo_blue.svg", class = "titan-hero-logo", alt = "TITAN"),
         div(
           class = "titan-hero-text",
-          tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target ANnotation"),
-          tags$p(class = "titan-hero-subtitle", "van Heesch lab")
+          tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non‑canonical ORFs")
         )
       ),
 
@@ -367,26 +362,20 @@ ui <- page_navbar(
         gap = "1rem",
 
         card(
-          card_header(tags$span(icon("file-arrow-up"), " ORF candidates")),
-          card_body(
-            div(class = "d-flex align-items-end gap-2",
-              div(class = "flex-grow-1",
-                fileInput("user_rds_file", "Upload your own RDS",
-                          accept = ".rds", buttonLabel = "Browse…",
-                          placeholder = "titan_orf_table.rds")
-              ),
-              div(class = "mb-3", uiOutput("clear_rds_btn"))
-            ),
-            div(class = "d-flex align-items-center gap-2 mb-3",
-                tags$span(class = "text-muted small", "- or —"),
-                actionButton("load_demo_rds", "Load demo dataset",
-                             icon = icon("flask"), class = "btn-sm btn-outline-primary")),
-            uiOutput("data_load_status")
-          )
+          card_header(
+            class = "d-flex align-items-center justify-content-between",
+            tags$span(icon("file-arrow-up"), " ORF candidates"),
+            uiOutput("orf_status_badge", inline = TRUE)
+          ),
+          card_body(uiOutput("orf_source_ui"))
         ),
 
         card(
-          card_header(tags$span(icon("vials"), " MS peptides")),
+          card_header(
+            class = "d-flex align-items-center justify-content-between",
+            tags$span(icon("vials"), " MS peptides"),
+            uiOutput("ms_status_badge", inline = TRUE)
+          ),
           card_body(
             div(class = "d-flex align-items-end gap-2",
               div(class = "flex-grow-1",
@@ -402,8 +391,7 @@ ui <- page_navbar(
                 actionButton("load_demo_ms", "Load demo peptides",
                              icon = icon("flask"), class = "btn-sm btn-outline-primary")),
             uiOutput("ms_load_status"),
-            uiOutput("col_selector"),
-            uiOutput("match_summary_badge")
+            uiOutput("col_selector")
           )
         )
       ),
@@ -584,7 +572,7 @@ ui <- page_navbar(
     "About", icon = icon("circle-question"),
     card(
       card_body(
-        tags$h4("TITAN - Tumor Immunopeptidomics Target ANnotation"),
+        tags$h4("TITAN - Tumor Immunopeptidomics Target Atlas for Non-canonical ORFs"),
         tags$p("TITAN integrates ribo-seq, RNA-seq, and external databases to prioritise",
                " non-canonical ORF-derived peptide candidates for cancer immunotherapy."),
         tags$hr(),
@@ -616,7 +604,8 @@ ui <- page_navbar(
 server <- function(input, output, session) {
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
-  app_data_rv <- reactiveVal(NULL)
+  app_data_rv    <- reactiveVal(NULL)
+  show_upload_rv <- reactiveVal(FALSE)
 
   orf_table_rv <- reactive({
     req(app_data_rv())
@@ -656,7 +645,6 @@ server <- function(input, output, session) {
     safe_matched_data()
     input$prio_spec_filter
     input$prio_risk_filter
-    input$gtex_max_tpm_filter
   }, {
     md <- safe_matched_data()
     if (is.null(md) || nrow(md) == 0L) {
@@ -684,60 +672,173 @@ server <- function(input, output, session) {
       choices = choices, selected = top_oid, server = TRUE)
   }, ignoreNULL = FALSE, ignoreInit = FALSE)
 
-  # ── Data tab: load handlers ─────────────────────────────────────────────────
-  observeEvent(input$load_demo_rds, {
-    withProgress(message = "Loading demo dataset…", value = 0.2, {
-      setProgress(0.6, detail = "Reading RDS…")
-      dat <- readRDS("data/titan_orf_table.rds")
-      setProgress(0.95)
-      app_data_rv(dat)
-    })
+  # ── Data tab: study library ──────────────────────────────────────────────────
+
+  filtered_catalog <- reactive({
+    df <- STUDY_CATALOG
+    if (nrow(df) == 0L) return(df)
+    q  <- trimws(input$catalog_search %||% "")
+    ct <- input$catalog_ct_filter     %||% "ALL"
+    co <- input$catalog_cohort_filter %||% "ALL"
+    if (nzchar(q))         df <- df[grepl(q,  df$display_name, ignore.case = TRUE), ]
+    if (ct != "ALL")       df <- df[!is.na(df$cancer_type) & df$cancer_type == ct, ]
+    if (co != "ALL")       df <- df[!is.na(df$cohort)      & df$cohort      == co, ]
+    df
   })
+
+  output$catalog_study_list <- renderUI({
+    df <- filtered_catalog()
+    if (nrow(df) == 0L)
+      return(tags$p(class = "text-muted small mt-2",
+                    if (nrow(STUDY_CATALOG) == 0L)
+                      "No studies in catalog. Run scripts/register_study.R to add one."
+                    else
+                      "No studies match the current filter."))
+    rows <- lapply(seq_len(nrow(df)), function(i) {
+      s   <- df[i, ]
+      sid <- s$study_id
+      loaded <- !is.null(app_data_rv()) &&
+                identical(app_data_rv()$study_id %||% "", sid)
+
+      if (loaded) {
+        # ── Active study: expanded card with left accent ──
+        div(class = "titan-study-active",
+          div(class = "d-flex justify-content-between align-items-start",
+            div(
+              tags$b(class = "d-block", s$display_name),
+              div(class = "d-flex gap-2 mt-1 flex-wrap align-items-center",
+                if (!is.na(s$n_orfs))
+                  tags$span(class = "badge bg-primary",
+                            paste0(formatC(s$n_orfs, big.mark = ",", format = "d"), " ORFs")),
+                if (!is.na(s$n_ribo_samples))
+                  tags$span(class = "badge bg-secondary",
+                            paste0(s$n_ribo_samples, " samples")),
+                tags$span(class = "badge rounded-pill text-bg-light border", s$cancer_type),
+                if (!is.na(s$prepared_on))
+                  tags$small(class = "text-muted", s$prepared_on)
+              )
+            ),
+            actionButton("clear_rds", NULL, icon = icon("trash"),
+                         class = "btn-sm btn-outline-danger flex-shrink-0",
+                         title = "Clear ORF data")
+          )
+        )
+      } else {
+        # ── Available study: compact row ──
+        div(class = "titan-study-row d-flex justify-content-between align-items-center",
+          div(
+            tags$b(class = "d-block", s$display_name),
+            tags$small(class = "text-muted",
+              paste0(
+                if (!is.na(s$n_orfs))
+                  paste0(formatC(s$n_orfs, big.mark = ",", format = "d"), " ORFs"),
+                if (!is.na(s$n_ribo_samples))
+                  paste0(" · ", s$n_ribo_samples, " ribo / ", s$n_rna_samples, " RNA")
+              )
+            )
+          ),
+          actionButton(paste0("load_study_", sid), "Load",
+                       class = "btn-sm btn-outline-primary flex-shrink-0")
+        )
+      }
+    })
+    div(class = "mt-1", tagList(rows))
+  })
+
+  output$orf_source_ui <- renderUI({
+    show_upload <- show_upload_rv()
+    ct_choices     <- c("All cancer types" = "ALL",
+                        sort(unique(na.omit(STUDY_CATALOG$cancer_type))))
+    cohort_choices <- c("All cohorts" = "ALL",
+                        sort(unique(na.omit(STUDY_CATALOG$cohort))))
+    div(
+      # Toggle buttons: Study Library | Upload Data
+      div(class = "d-flex gap-2 mb-3",
+        actionButton("show_library_btn", tagList(icon("book-open"), " Study Library"),
+                     class = paste("btn-sm",
+                                   if (!show_upload) "titan-toggle-active" else "titan-toggle-inactive")),
+        actionButton("show_upload_btn", tagList(icon("upload"), " Upload Data"),
+                     class = paste("btn-sm",
+                                   if (show_upload) "titan-toggle-active" else "titan-toggle-inactive"))
+      ),
+      if (!show_upload) {
+        div(
+          textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%"),
+          div(class = "d-flex gap-2 mb-2",
+            selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
+            selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
+          ),
+          div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
+            uiOutput("catalog_study_list")
+          )
+        )
+      } else {
+        div(class = "mt-1",
+          fileInput("user_rds_file", NULL, accept = ".rds",
+                    buttonLabel = "Browse…",
+                    placeholder = "titan_<study_id>.rds")
+        )
+      }
+    )
+  })
+
+  # One observer per catalog entry, registered at session start
+  lapply(STUDY_CATALOG$study_id, function(sid) {
+    observeEvent(input[[paste0("load_study_", sid)]], {
+      entry <- STUDY_CATALOG[STUDY_CATALOG$study_id == sid, ]
+      withProgress(message = paste0("Loading ", entry$display_name, "…"), value = 0.2, {
+        setProgress(0.6, detail = "Reading RDS (may take ~10 s)…")
+        dat <- tryCatch(
+          readRDS(entry$rds_path),
+          error = function(e) {
+            showNotification(paste0("Could not read RDS: ", e$message), type = "error",
+                             duration = 10)
+            NULL
+          }
+        )
+        if (is.null(dat)) return()
+        setProgress(0.85, detail = "Validating…")
+        err <- tryCatch({ validate_titan_rds(dat); NULL }, error = function(e) e$message)
+        if (!is.null(err)) {
+          showNotification(paste0("Invalid study data: ", err), type = "error", duration = 10)
+          return()
+        }
+        if (is.null(dat$study_id)) dat$study_id <- sid
+        setProgress(1)
+        app_data_rv(dat)
+      })
+    }, ignoreInit = TRUE)
+  })
+
+  # ── Data tab: upload handler ─────────────────────────────────────────────────
 
   observeEvent(input$user_rds_file, {
     req(input$user_rds_file)
     withProgress(message = "Loading dataset…", value = 0.2, {
       setProgress(0.6, detail = "Reading RDS…")
       dat <- tryCatch(readRDS(input$user_rds_file$datapath), error = function(e) NULL)
-      setProgress(0.95)
-      if (is.null(dat) || is.null(dat$orf_table)) {
-        showNotification("Invalid RDS: expected a list with $orf_table.", type = "error")
+      setProgress(0.85, detail = "Validating…")
+      if (is.null(dat)) {
+        showNotification("Could not read file as RDS.", type = "error")
         return()
       }
-      message("[DEBUG] RDS loaded. Top-level names: ", paste(names(dat), collapse = ", "))
-      message("[DEBUG] orf_table columns: ", paste(colnames(dat$orf_table), collapse = ", "))
-      gtex_col <- dat$orf_table$GTEX_tissues_q3_gt1
-      message("[DEBUG] GTEX_tissues_q3_gt1 in orf_table: ", !is.null(gtex_col),
-              " non-NA: ", sum(!is.na(gtex_col)),
-              " example: ", head(gtex_col[!is.na(gtex_col)], 1))
+      err <- tryCatch({ validate_titan_rds(dat); NULL }, error = function(e) e$message)
+      if (!is.null(err)) {
+        showNotification(paste0("Invalid RDS: ", err), type = "error", duration = 10)
+        return()
+      }
+      setProgress(1)
       app_data_rv(dat)
     })
   })
 
-  output$data_load_status <- renderUI({
-    d <- app_data_rv()
-    if (is.null(d))
-      return(tags$span(class = "text-muted small", "No dataset loaded."))
-    n  <- nrow(d$orf_table)
-    nr <- ncol(d$ribo_ppm_samples)
-    tagList(
-      div(class = "d-flex align-items-center gap-2 flex-wrap",
-          tags$span(class = "badge bg-secondary",
-                    paste0(formatC(n, big.mark = ","), " ORFs")),
-          tags$span(class = "badge bg-primary",
-                    paste0(nr, " samples"))),
-      if (!is.null(d$prepared_on))
-        tags$small(class = "text-muted d-block mt-1",
-                   format(d$prepared_on, "%Y-%m-%d"))
-    )
-  })
+  observeEvent(input$show_library_btn, {
+    show_upload_rv(FALSE)
+  }, ignoreInit = TRUE)
 
-  output$clear_rds_btn <- renderUI({
-    if (is.null(app_data_rv())) return(NULL)
-    actionButton("clear_rds", "Clear", icon = icon("trash"),
-                 class = "btn-sm btn-outline-danger",
-                 title = "Clear ORF data")
-  })
+  observeEvent(input$show_upload_btn, {
+    show_upload_rv(TRUE)
+  }, ignoreInit = TRUE)
 
   output$ms_load_status <- renderUI({
     ms <- tryCatch(ms_data(), error = function(e) NULL)
@@ -758,10 +859,26 @@ server <- function(input, output, session) {
                  title = "Clear MS data")
   })
 
+  output$orf_status_badge <- renderUI({
+    if (!is.null(app_data_rv()))
+      tags$span(class = "titan-status-badge titan-status-ready", "Ready")
+    else
+      tags$span(class = "titan-status-badge titan-status-awaiting", "Awaiting data")
+  })
+
+  output$ms_status_badge <- renderUI({
+    ms_ok <- tryCatch(!is.null(ms_data()), error = function(e) FALSE)
+    if (ms_ok)
+      tags$span(class = "titan-status-badge titan-status-ready", "Ready")
+    else
+      tags$span(class = "titan-status-badge titan-status-awaiting", "Awaiting data")
+  })
+
   observeEvent(input$clear_rds, {
     app_data_rv(NULL)
     all_matches_rv(NULL)
     started_rv(FALSE)
+    show_upload_rv(FALSE)
   })
 
   observeEvent(input$clear_ms, {
@@ -865,32 +982,33 @@ server <- function(input, output, session) {
     if (rds_ok && ms_ok && !started_rv()) {
       div(
         class = "mt-4 text-center",
-        div(class = "d-flex justify-content-center gap-2 mb-3",
-            tags$span(class = "badge bg-primary px-3 py-2",
-                      icon("check"), " ORF dataset ready"),
-            tags$span(class = "badge bg-primary px-3 py-2",
-                      icon("check"), " MS peptides ready")),
-        actionButton("start_titan", " START",
+        actionButton("start_titan", "EXPLORE TARGETS",
                      icon  = icon("play-circle"),
-                     class = "btn-lg btn-outline-primary px-5 py-2 fw-bold")
+                     class = "btn-lg btn-primary btn-titan-ready px-5 py-2 fw-bold")
       )
     } else if (started_rv()) {
+      md <- tryCatch(matched_data(), error = function(e) NULL)
+      counts_str <- if (!is.null(md) && nrow(md) > 0L) {
+        n_pep  <- n_distinct(md$matched_peptide)
+        n_orfs <- n_distinct(md$orf_id)
+        paste0(formatC(n_orfs, big.mark = ","), " ORFs and ",
+               formatC(n_pep,  big.mark = ","), " peptides matched.")
+      } else NULL
       div(
         class = "mt-4 text-center text-success",
         icon("circle-check", class = "fa-2x"),
-        tags$p(class = "mt-2 mb-0 fw-semibold", "Running - use the tabs above to explore.")
+        tags$p(class = "mt-2 mb-1 fw-semibold",
+               "Running — use the tabs above to explore."),
+        if (!is.null(counts_str))
+          tags$p(class = "text-muted small mb-0", counts_str)
       )
     } else {
-      # Show which piece is still missing
       div(
         class = "mt-4 text-center",
-        div(class = "d-flex justify-content-center gap-2 mb-2",
-            if (rds_ok) tags$span(class = "badge bg-primary px-3 py-2", icon("check"), " ORF dataset")
-            else        tags$span(class = "badge bg-secondary px-3 py-2", icon("circle"), " ORF dataset"),
-            if (ms_ok)  tags$span(class = "badge bg-primary px-3 py-2", icon("check"), " MS peptides")
-            else        tags$span(class = "badge bg-secondary px-3 py-2", icon("circle"), " MS peptides")),
-        tags$p(class = "text-muted small mb-0",
-               "Load both an ORF dataset and MS peptides to enable prioritisation.")
+        actionButton("start_titan", "EXPLORE TARGETS",
+                     icon  = icon("play-circle"),
+                     class = "btn-lg btn-primary px-5 py-2 fw-bold",
+                     style = "opacity:0.38; pointer-events:none;")
       )
     }
   })
@@ -984,15 +1102,6 @@ server <- function(input, output, session) {
     !is.null(user_ms_rv()) || !is.null(demo_ms_rv())
   })
   outputOptions(output, "has_peptides", suspendWhenHidden = FALSE)
-
-  output$match_summary_badge <- renderUI({
-    req(matched_data())
-    n_pep  <- n_distinct(matched_data()$matched_peptide)
-    n_orfs <- n_distinct(matched_data()$orf_id)
-    div(class = "mt-1",
-        pill_badge(paste(n_pep,  "peptides matched"), "success"),
-        pill_badge(paste(n_orfs, "ORF hits"),         "primary"))
-  })
 
   # ── Filter reactive (debounced) ─────────────────────────────────────────────
   filtered_data_raw <- reactive({
@@ -1371,13 +1480,11 @@ server <- function(input, output, session) {
         expr_html    = vapply(target_expression_pct_samples,
                               function(x) pct_bar_html(x, "#7EB8BF"), character(1))
       )
-    sel_spec    <- input$prio_spec_filter %||% c("Tumor-only", "Tumor-enriched", "Non-specific")
-    sel_risk    <- input$prio_risk_filter %||% c("Safe", "Acceptable", "Borderline", "Critical", "Unavailable")
-    gtex_cutoff <- if (isTRUE(input$gtex_max_tpm_filter)) 1 else Inf
+    sel_spec <- input$prio_spec_filter %||% c("Tumor-only", "Tumor-enriched", "Non-specific")
+    sel_risk <- input$prio_risk_filter %||% c("Safe", "Acceptable", "Borderline", "Critical", "Unavailable")
     df <- filter(df,
                  spec_category %in% sel_spec,
-                 off_tissue_label %in% sel_risk,
-                 replace_na(GTEX_max_median_TPM, 0) <= gtex_cutoff)
+                 off_tissue_label %in% sel_risk)
     # DT column layout (0-based, after dropping .orf_id + orf_ids before DT):
     # Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4) Location(5)
     # Specificity(6) Off-tissue risk(7) Score(8) Transl.%(9) Transl.PPM(10) Expr.%(11) Expr.TPM(12)
@@ -1409,7 +1516,6 @@ server <- function(input, output, session) {
       `Transl. PPM`  = round(target_translation_median_PPM,  2),
       `Expr. %`      = expr_html,
       `Expr. TPM`    = round(target_expression_median_TPM,   2),
-      `GTEx max TPM` = round(GTEX_max_median_TPM,            3),
       `TCGA T%`      = round(TCGA_tumor_pct_samples,         1),
       `TCGA T TPM`   = round(TCGA_tumor_median_TPM,          2),
       `TCGA N%`      = round(TCGA_normal_pct_samples,        1),
@@ -1434,9 +1540,9 @@ server <- function(input, output, session) {
     df <- prio_table_df() %>% select(-`.orf_id`, -`orf_ids`)
     # Col layout (0-based): Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4)
     # Location(5) Specificity(6) Off-tissue risk(7) Score(8) Transl.%(9) PPM(10) Expr.%(11) TPM(12)
-    # GTEx(13) TCGAT%(14) TCGATPM(15) TCGAN%(16) TCANPM(17) RCprim%(18) RCprimPPM(19)
-    # RCCL%(20) RCCLPPM(21) .biotype_sort(22) .spec_sort(23) .off_tissue_sort(24)
-    # .score_sort(25) .transl_sort(26) .expr_sort(27) .child_rows(28)
+    # TCGAT%(13) TCGATPM(14) TCGAN%(15) TCANPM(16) RCprim%(17) RCprimPPM(18)
+    # RCCL%(19) RCCLPPM(20) .biotype_sort(21) .spec_sort(22) .off_tissue_sort(23)
+    # .score_sort(24) .transl_sort(25) .expr_sort(26) .child_rows(27)
     n_vis <- ncol(df) - 7L   # 7 hidden cols: 6 sort + .child_rows
     datatable(
       df,
@@ -1557,10 +1663,7 @@ server <- function(input, output, session) {
         ),
         lengthMenu = list(c(10, 20, 50), c("10", "20", "50"))
       )
-    ) %>%
-      formatStyle("GTEx max TPM",
-                  color      = styleInterval(1, c("inherit", "#C0392B")),
-                  fontWeight = styleInterval(1, c("normal", "600")))
+    )
   }, server = TRUE)
 
   prio_row_id          <- reactiveVal(NULL)
@@ -1597,7 +1700,6 @@ server <- function(input, output, session) {
       list("Median TPM",            fmt2(row$target_expression_median_TPM)),
       list("% samples (transl.)",   fmt1(row$target_translation_pct_samples)),
       list("Median PPM",            fmt2(row$target_translation_median_PPM)),
-      list("GTEx max TPM",          fmt2(row$GTEX_max_median_TPM)),
       list("TCGA tumor %",          fmt1(row$TCGA_tumor_pct_samples)),
       list("TCGA normal %",         fmt1(row$TCGA_normal_pct_samples)),
       list("RC primary %",          fmt1(row$ribocrypt_primary_pct_samples)),

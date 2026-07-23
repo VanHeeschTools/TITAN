@@ -82,7 +82,7 @@ body > footer { margin-top: 0; }
     --bs-dropdown-font-size: .6rem;
 }
 .form-control {
-    font-size: .75rem;
+    font-size: .8rem;
     line-height: 1;
     padding: 0rem .75rem;
 }
@@ -248,8 +248,8 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 /* Text / number inputs — exclude readonly (file picker display) */
 .shiny-input-container .form-control:not([readonly]),
 .shiny-input-container .form-select {
-  font-size: 10px !important;
-  padding: 2px 7px !important;
+  font-size: 0.75 !important;
+  padding: 0.3rem 0.5rem !important;
   height: auto !important;
 }
 
@@ -263,8 +263,8 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   padding: 3px 9px !important;
 }
 
-.shiny-input-select { font-size: .7rem !important; padding: 2px 7px !important; height: auto !important; }
-.shiny-bound-input { font-size: .75rem !important; }
+.shiny-input-select { font-size: .75rem !important; padding: 2px 7px !important; height: auto !important; }
+.shiny-bound-input { font-size: .8rem !important; }
 
 .selectize-dropdown, .selectize-input, .selectize-input input { font-size: 10px !important; }
 
@@ -808,3 +808,86 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   padding: 3px 10px; border-bottom: 1px solid #EEF5F7; vertical-align: middle;
 }
 .titan-child-table tbody tr:last-child td { border-bottom: none; }
+
+/* ── Upload toggle link ──────────────────────────────────────────────────── */
+.titan-upload-link {
+  transition: color 0.15s;
+}
+.titan-upload-link:hover {
+  color: #28646E !important;
+  text-decoration: underline !important;
+}
+
+/* ── Library / Upload toggle buttons ────────────────────────────────────── */
+.titan-toggle-active {
+  background: #28646E !important;
+  color: #ffffff !important;
+  border: 1px solid #28646E !important;
+}
+.titan-toggle-active:hover, .titan-toggle-active:focus {
+  background: #1D4D56 !important;
+  border-color: #1D4D56 !important;
+  color: #ffffff !important;
+}
+.titan-toggle-inactive {
+  background: rgba(40,100,110,0.09) !important;
+  color: #28646E !important;
+  border: 1px solid rgba(40,100,110,0.28) !important;
+}
+.titan-toggle-inactive:hover, .titan-toggle-inactive:focus {
+  background: rgba(40,100,110,0.17) !important;
+  border-color: rgba(40,100,110,0.45) !important;
+  color: #1D4D56 !important;
+}
+
+/* ── Card header status badges ───────────────────────────────────────────── */
+.titan-status-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  line-height: 1.6;
+  display: inline-block;
+}
+.titan-status-ready {
+  background: rgba(40,100,110,0.12);
+  color: #1D4D56;
+  border: 1px solid rgba(40,100,110,0.28);
+}
+.titan-status-awaiting {
+  background: #f0f0f1;
+  color: #6C757D;
+  border: 1px solid #dee2e6;
+}
+
+/* ── Study library: active-loaded card ───────────────────────────────────── */
+.titan-study-active {
+  border-left: 3px solid #28646E !important;
+  background: rgba(40,100,110,0.07);
+  border-radius: 5px;
+  padding: 10px 12px 10px 11px;
+  margin-bottom: 6px;
+}
+/* ── Study library: compact available row ────────────────────────────────── */
+.titan-study-row {
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 7px 10px;
+  margin-bottom: 5px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.titan-study-row:hover {
+  background: var(--clr-hover);
+  border-color: var(--clr-border-subtle);
+}
+
+/* ── START button ready-state animation ──────────────────────────────────── */
+@keyframes titan-ready-in {
+  from { opacity: 0.4; transform: scale(0.97); }
+  to   { opacity: 1;   transform: scale(1); }
+}
+.btn-titan-ready {
+  animation: titan-ready-in 0.25s ease-out;
+}

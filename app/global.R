@@ -13,6 +13,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(jsonlite)
   library(shinyWidgets)
+  library(yaml)
 })
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
@@ -20,22 +21,34 @@ suppressPackageStartupMessages({
 options(shiny.maxRequestSize = 1000 * 1024^2)  # 1 GB upload limit
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DATA  (demo loaded at startup for initial UI state; replaced reactively)
+# STUDY CATALOG  (static at app startup; loaded from data/catalog.yaml)
 # ─────────────────────────────────────────────────────────────────────────────
 
-app_data         <- readRDS("data/titan_orf_table.rds")
-orf_table        <- app_data$orf_table
-ribo_ppm_samples <- app_data$ribo_ppm_samples
-ribo_sample_meta <- app_data$ribo_sample_meta
-rna_tpm_mat      <- app_data$rna_tpm_mat
+STUDY_CATALOG <- local({
+  f <- "data/catalog.yaml"
+  empty <- data.frame(
+    study_id = character(), display_name = character(),
+    cancer_type = character(), cohort = character(),
+    rds_path = character(), n_orfs = integer(),
+    n_ribo_samples = integer(), n_rna_samples = integer(),
+    prepared_on = character(), stringsAsFactors = FALSE
+  )
+  if (!file.exists(f)) { message("No catalog found at ", f); return(empty) }
+  entries <- tryCatch(yaml::read_yaml(f)$studies, error = function(e) {
+    message("Failed to read catalog: ", e$message); NULL
+  })
+  if (is.null(entries) || length(entries) == 0L) return(empty)
+  dplyr::bind_rows(lapply(entries, function(e) {
+    as.data.frame(lapply(e, function(v) if (is.null(v)) NA else v),
+                  stringsAsFactors = FALSE)
+  }))
+})
 
-if (!"gene_id_clean" %in% colnames(orf_table))
-  orf_table$gene_id_clean <- sub("\\..*", "", orf_table$gene_id)
-
-n_ribo_samples <- ncol(ribo_ppm_samples)
-n_rna_samples  <- if (!is.null(rna_tpm_mat)) ncol(rna_tpm_mat) else nrow(app_data$rna_sample_meta)
-
-biotypes <- sort(unique(orf_table$orf_biotype_single))
+# Placeholder values used by UI sliders/pickers before any data is loaded.
+# All are updated reactively via observeEvent(app_data_rv(), ...) in app.R.
+n_ribo_samples <- 1L
+n_rna_samples  <- 1L
+biotypes       <- character(0)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GENCODE ORF TABLE  (optional; enables cross-matching against TransCode Phase 2)
