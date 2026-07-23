@@ -1,0 +1,6 @@
+.git/
+design/
+documentation/
+scripts/
+app/app.R.bak
+app/data/test_*
