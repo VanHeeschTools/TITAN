@@ -160,15 +160,14 @@ ui <- page_navbar(
 
   id           = "main_nav",
   title        = tags$span(
+    style = "cursor:pointer;",
+    onclick = "document.querySelector('#main_nav [data-value=\"Data\"]').click();",
     tags$img(src = "titan_logo_white.svg", height = "26px",
-             style = "margin-right:8px; vertical-align:middle;"),
-    tags$span(" · Tumor Immunopeptidomics Target ANnotation",
-              style = "font-weight:400; font-size:.85em; opacity:.85;")
+             style = "margin-right:8px; vertical-align:middle;")
   ),
   theme        = titan_theme,
   window_title = "TITAN",
   lang         = "en",
-  bg           = "#28646E",
   footer       = tags$footer(
     class = "d-flex align-items-center gap-3 px-3 py-2",
     style = "background:#f8f9fa;border-top:1px solid #dee2e6;font-size:12px;color:#6c757d;",

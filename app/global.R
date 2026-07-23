@@ -313,6 +313,74 @@ BIOTYPE_COLORS <- c(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
+# RISK CATEGORIES FOR OFF-TISSUE EXPRESSION (GTEx) — constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+off_tissue_risk_adult <- c(
+  Adipose            = "Acceptable",
+  Adrenal_Gland      = "Critical",
+  Artery             = "Critical",
+  Bladder            = "Borderline",
+  Brain              = "Critical",
+  Breast             = "Borderline",
+  Cervix             = "Acceptable",
+  Colon              = "Critical",
+  Esophagus          = "Critical",
+  Fallopian_Tube     = "Acceptable",
+  Heart              = "Critical",
+  Kidney             = "Critical",
+  Liver              = "Critical",
+  Lung               = "Critical",
+  Muscle             = "Borderline",
+  Nerve              = "Critical",
+  Ovary              = "Borderline",
+  Pancreas           = "Critical",
+  Pituitary          = "Critical",
+  Prostate           = "Acceptable",
+  Salivary           = "Acceptable",
+  Skin               = "Acceptable",
+  Small_Intestine    = "Critical",
+  Spleen             = "Acceptable",
+  Stomach            = "Critical",
+  Thyroid            = "Borderline",
+  Uterus             = "Acceptable",
+  Vagina             = "Acceptable",
+  Whole_Blood        = "Critical"
+)
+
+off_tissue_risk_pediatric <- c(
+  Adipose            = "Acceptable",
+  Adrenal_Gland      = "Critical",
+  Artery             = "Critical",
+  Bladder            = "Borderline",
+  Brain              = "Critical",
+  Breast             = "Critical",
+  Cervix             = "Borderline",
+  Colon              = "Critical",
+  Esophagus          = "Critical",
+  Fallopian_Tube     = "Borderline",
+  Heart              = "Critical",
+  Kidney             = "Critical",
+  Liver              = "Critical",
+  Lung               = "Critical",
+  Muscle             = "Borderline",
+  Nerve              = "Critical",
+  Ovary              = "Critical",
+  Pancreas           = "Critical",
+  Pituitary          = "Critical",
+  Prostate           = "Critical",
+  Salivary           = "Borderline",
+  Skin               = "Borderline",
+  Small_Intestine    = "Critical",
+  Spleen             = "Borderline",
+  Stomach            = "Critical",
+  Thyroid            = "Critical",
+  Uterus             = "Borderline",
+  Vagina             = "Borderline",
+  Whole_Blood        = "Critical"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SCORING SYSTEM — constants
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -358,23 +426,24 @@ PRESETS <- list(
 
 titan_theme <- bs_theme(
   version       = 5,
-  bg            = "#FFFFFF",
+  bg            = "#f8f9fa",
   fg            = "#212529",
   primary       = "#28646E",
   secondary     = "#AADCFF",
-  success       = "#00A555",
-  warning       = "#D4850A",
-  danger        = "#C0392B",
+  success       = "#21AE7F",
+  warning       = "#F3C677",
+  danger        = "#B33E3E",
   info          = "#FFBEFF",
   font_scale    = 0.9,
   base_font     = font_google("Inter"),
-  heading_font  = font_google("Inter"),
-  code_font     = font_google("Fira Code"),
-  "navbar-bg"               = "#28646E",
-  "navbar-dark-color"       = "rgba(255,255,255,.9)",
-  "navbar-dark-hover-color" = "#FFFFFF",
-  "sidebar-bg"              = "#EFF7F8",
-  "sidebar-border-color"    = "#C8D8DC",
-  "card-border-color"       = "#DAE9EC",
-  "card-cap-bg"             = "#F0F7F9"
+  heading_font  = "IBM Plex Sans",
+  code_font     = "IBM Plex Mono",
+  "card-bg"                 = "#FFFFFF",
+  "navbar-light-bg"               = "#28646E",
+  "navbar-light-color"            = "#F0F7F9",
+  "navbar-light-hover-color"      = "#FFFFFF",
+  "navbar-light-active-color"     = "#FFFFFF",
+  "navbar-light-brand-color"      = "#FFFFFF",
+  "navbar-light-brand-hover-color"= "#FFFFFF",
+  "input-border-color"            = "#DAE9EC"
 )

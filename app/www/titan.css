@@ -3,6 +3,31 @@
    clear typographic hierarchy, color-coded score/specificity indicators.
 */
 
+/* ── Self-hosted fonts ───────────────────────────────────────────────────── */
+/* IBM Plex Sans — latin subset, weights 300–600 (variable woff2 from Google) */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url('fonts/ibm-plex-sans-latin.woff2') format('woff2');
+}
+/* IBM Plex Mono — latin subset, weights 400 and 500 */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
+}
+
 /* ── House-style colour tokens ───────────────────────────────────────────── */
 :root {
   --clr-primary:        #28646E;  /* teal — nav, headers, badges, key text   */
@@ -12,7 +37,7 @@
   --clr-success-bg:     #D0F0E3;  /* pale green — tumour-only badge fill      */
   --clr-warning:        #D4850A;  /* amber — mid scores, modified indicator   */
   --clr-danger:         #C0392B;  /* red — low scores, penalty labels         */
-  --clr-bg-sidebar:     #EFF7F8;  /* lightest teal tint — sidebar background  */
+  --clr-bg-sidebar:     #F0F7F9;  /* lightest teal tint — sidebar background  */
   --clr-bg-card:        #F0F7F9;  /* very light teal — card headers, panels   */
   --clr-border:         #DAE9EC;  /* teal-tinted border — cards, tiles        */
   --clr-border-subtle:  #C8D8DC;  /* slightly deeper border — sidebar, tables */
@@ -78,6 +103,7 @@ body > footer { margin-top: 0; }
   padding: .5rem .9rem;
   font-size: .75rem;
   font-weight: 600;
+  font-family: 'IBM Plex Sans', 'Inter', sans-serif;
   color: var(--clr-primary);
   background: var(--clr-bg-card);
   border-bottom: 1px solid var(--clr-border);
@@ -150,6 +176,7 @@ body > footer { margin-top: 0; }
 .bslib-value-box .value-box-title {
   font-size: 9px !important;
   font-weight: 700;
+  font-family: 'IBM Plex Sans', 'Inter', sans-serif;
   text-transform: uppercase;
   letter-spacing: .08em;
   color: #8A9CAA;
@@ -203,7 +230,7 @@ div.dt-buttons .dt-button {
 div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 
 /* Monospace peptide column */
-.titan-pep-cell { font-family: 'Fira Code', 'Courier New', monospace !important; font-size: 11px; color: #555; }
+.titan-pep-cell { font-family: 'IBM Plex Mono', 'Courier New', monospace !important; font-size: 11px; color: #555; }
 
 /* ── Compact inputs ──────────────────────────────────────────────────────── */
 /* Shiny adds mb-3 as a class directly on .shiny-input-container */
@@ -250,7 +277,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 
 /* ── ORF Detail tab ──────────────────────────────────────────────────────── */
 #detail_protein_seq {
-  font-family: 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: .76rem;
   white-space: pre-wrap;
   word-break: break-all;
@@ -421,11 +448,12 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .prio-detail-gene {
   font-size: 16px;
   font-weight: 500;
+  font-family: 'IBM Plex Sans', 'Inter', sans-serif;
   margin: 0 0 2px;
   color: #212529;
 }
 .prio-detail-pep {
-  font-family: 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: 12px;
   color: #6C757D;
 }
@@ -471,7 +499,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 
 /* ORF IDs line in candidate detail header */
 .prio-detail-orfs {
-  font-family: 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: 11px;
   color: #6C757D;
   word-break: break-all;
@@ -533,6 +561,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .prio-page-title {
   font-size: 18px;
   font-weight: 500;
+  font-family: 'IBM Plex Sans', 'Inter', sans-serif;
   margin: 2px 0 4px;
   color: #212529;
 }
@@ -564,10 +593,8 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   gap: 20px;
   padding: 28px 32px;
   margin-bottom: 24px;
-  background: linear-gradient(135deg, #EFF7F8 0%, #FFFFFF 60%);
-  border: 1px solid var(--clr-border);
-  border-radius: 10px;
 }
+
 .titan-hero-logo {
   height: 72px;
   width: auto;
@@ -578,6 +605,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .titan-hero-title {
   font-size: 2rem;
   font-weight: 700;
+  font-family: 'IBM Plex Sans', 'Inter', sans-serif;
   color: var(--clr-primary);
   margin: 0 0 4px;
   letter-spacing: -.01em;
@@ -635,13 +663,13 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   margin-bottom: 8px;
 }
 .seq-legend-badge {
-  font-family: 'Fira Code', 'Courier New', monospace;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 3px;
 }
 .titan-protein-seq {
-  font-family: 'Fira Code', 'Courier New', monospace;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.85;
   white-space: pre;
@@ -662,7 +690,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 
 /* ── Peptide hover popover ───────────────────────────────────────────────── */
 .pep-popover .popover-header {
-  font-family: 'Fira Code', 'Courier New', monospace;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
   font-size: 12px;
   background: var(--clr-bg-card);
   border-bottom: 1px solid var(--clr-border);
