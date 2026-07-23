@@ -37,12 +37,20 @@ score_candidates <- function(df, w) {
                            GTEX_tumor_enriched %in% TRUE ~ 0.5,
                            TRUE                          ~ 0
                          ) * wv["w_tumor_spec"],
+      dim_off_tissue   = {
+                           tq  <- if ("GTEX_tissues_q3_gt1" %in% names(df)) df$GTEX_tissues_q3_gt1 else rep(NA_character_, nrow(df))
+                           sig <- mapply(function(to, tis) {
+                             r <- off_tissue_risk(to, tis, off_tissue_risk_adult)
+                             switch(r, "Safe"=1, "Acceptable"=0.75, "Borderline"=0.5, "Critical"=0, "Unavailable"=0, 0)
+                           }, GTEX_tumor_only, tq)
+                           unname(sig) * wv["w_off_tissue"]
+                         },
       dim_gtex_penalty = pmin(replace_na(GTEX_max_median_TPM, 0) / max_gtex, 1) * wv["w_gtex_penalty"],
       dim_tcga_cov     = pmin(replace_na(TCGA_tumor_pct_samples, 0) / 100, 1) * wv["w_tcga_cov"],
       dim_peri_penalty = pmin(replace_na(TCGA_normal_pct_samples, 0) / 100, 1) * wv["w_peri_penalty"],
       dim_ribo_primary = pmin(replace_na(ribocrypt_primary_median_PPM, 0) / (max_ribo_prim * 0.5), 1) * wv["w_ribo_primary"],
       dim_ribo_cell    = pmin(replace_na(`ribocrypt_cell-line_median_PPM`, 0) / (max_ribo_cell * 0.5), 1) * wv["w_ribo_cell"],
-      raw_score        = dim_pct_samples + dim_pct_transl + dim_tumor_spec + dim_gtex_penalty +
+      raw_score        = dim_pct_samples + dim_pct_transl + dim_tumor_spec + dim_off_tissue + dim_gtex_penalty +
                          dim_tcga_cov + dim_peri_penalty + dim_ribo_primary + dim_ribo_cell,
       priority_score   = if (score_range == 0) 50 else
                            pmax(0, pmin(100, (raw_score - min_possible) / score_range * 100))
@@ -63,6 +71,40 @@ pct_bar_html <- function(pct, color) {
     '<div class="titan-score-wrap"><div class="titan-score-track"><div class="titan-score-fill" style="width:%.0f%%;background:%s"></div></div><span class="titan-score-val">%.0f%%</span></div>',
     v, color, v
   )
+}
+
+# Numeric rank for worst-case lookup within tumor-enriched candidates (higher = worse).
+.RISK_RANK <- c("Acceptable" = 0L, "Borderline" = 1L, "Critical" = 2L)
+
+# Ordinal for DT sort column: ascending = safest first. Unavailable sorts last.
+.RISK_SORT <- c("Safe" = 1L, "Acceptable" = 2L, "Borderline" = 3L, "Critical" = 4L, "Unavailable" = 5L)
+
+off_tissue_risk <- function(tumor_only, tissues_q3_gt1,
+                             risk_map = off_tissue_risk_adult) {
+  to <- as.logical(tumor_only)
+  if (is.na(to)) return("Unavailable")
+  if (isTRUE(to)) return("Safe")
+  raw     <- if (is.null(tissues_q3_gt1) || is.na(tissues_q3_gt1)) "" else as.character(tissues_q3_gt1)
+  parts   <- trimws(strsplit(raw, "|", fixed = TRUE)[[1]])
+  tissues <- sub("=.*", "", parts[nzchar(parts)])
+  risks   <- risk_map[tissues]
+  risks   <- risks[!is.na(risks)]
+  if (length(risks) == 0L) return("Acceptable")
+  risks[[which.max(.RISK_RANK[risks])]]
+}
+
+off_tissue_risk_html <- function(label) {
+  col <- switch(label,
+    "Safe"        = "#21ae7f",
+    "Acceptable"  = "#37a4a2",
+    "Borderline"  = "#f3c677",
+    "Critical"    = "#b33e3e",
+    "Unavailable" = "#adb5bd",
+    "#adb5bd"
+  )
+  txt <- if (identical(label, "Borderline")) "#333333" else "#ffffff"
+  sprintf('<span class="titan-badge titan-badge-risk" style="background:%s;color:%s">%s</span>',
+          col, txt, label)
 }
 
 spec_badge_html <- function(tumor_only, tumor_enriched) {

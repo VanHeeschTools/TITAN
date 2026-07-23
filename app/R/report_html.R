@@ -53,6 +53,21 @@
     '<span style="background:#e2e3e5;color:#383d41;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Non-specific</span>'
 }
 
+.rpt_risk_badge <- function(tumor_only, tissues_q3_gt1) {
+  label <- off_tissue_risk(tumor_only, tissues_q3_gt1, off_tissue_risk_adult)
+  col <- switch(label,
+    "Safe"        = "#21ae7f",
+    "Acceptable"  = "#37a4a2",
+    "Borderline"  = "#f3c677",
+    "Critical"    = "#b33e3e",
+    "Unavailable" = "#adb5bd",
+    "#adb5bd"
+  )
+  txt <- if (identical(label, "Borderline")) "#333333" else "#ffffff"
+  sprintf('<span style="background:%s;color:%s;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">%s</span>',
+          col, txt, label)
+}
+
 .rpt_build_page <- function(row, pep_list,
                              rna_mat, rna_meta, gtex_mat, gtex_meta,
                              tcga_mat, tcga_meta, ribo_m, ribo_sm,
@@ -192,7 +207,8 @@
   </div>
 </div>',
     row$gene_name, bio_col, bio_col, row$orf_biotype_single,
-    .rpt_badge(row$GTEX_tumor_only, row$GTEX_tumor_enriched),
+    paste0(.rpt_badge(row$GTEX_tumor_only, row$GTEX_tumor_enriched), " ",
+           .rpt_risk_badge(row$GTEX_tumor_only, row$GTEX_tissues_q3_gt1)),
     n_orfs_str, n_pep_str, row$priority_score,
     tile_html,
     ylabel_e, PH_E, uri_et, uri_eg, uri_etc,
@@ -241,9 +257,11 @@
   character(1)), collapse = "")
 
   spec_rows <- paste(vapply(list(
-    c("Tumor-only",    "logFC &gt; 2 AND p &lt; 0.01 vs EVERY individual GTEx tissue; top-25% (Q3) &lt; 1 TPM in each tissue individually"),
-    c("Tumor-enriched","logFC &gt; 2 AND p &lt; 0.01 vs ALL GTEx tissues combined (in aggregate); top-25% (Q3) &lt; 1 TPM across all tissues combined"),
-    c("Non-specific",  "logFC/significance threshold not met against one or more GTEx tissues")
+    c("Safe",        "Tumor-only (logFC &gt; 2 vs every GTEx tissue; Q3 &lt; 1 TPM per tissue). No appreciable expression in adult healthy tissues."),
+    c("Acceptable",  "Q3 &gt; 1 TPM only in tissues classified as low-concern by the project safety framework (e.g. Adipose, Skin, Spleen)."),
+    c("Borderline",  "Q3 &gt; 1 TPM in Borderline-classified tissues (e.g. Bladder, Muscle, Thyroid, Ovary, Breast)."),
+    c("Critical",    "Q3 &gt; 1 TPM in at least one Critical-classified tissue (e.g. Brain, Heart, Liver, Kidney, Lung, Nerve)."),
+    c("Unavailable", "GTEx tumor-specificity data not available for this candidate. Off-tissue risk could not be assessed.")
   ), function(r)
     sprintf('<tr><td %s><b>%s</b></td><td %s>%s</td></tr>', td_style, r[1], td_style, r[2]),
   character(1)), collapse = "")
@@ -292,13 +310,13 @@
         </table>
       </div>
       <div style="flex:2">
-        <div style="font-size:9px;font-weight:700;color:#444;margin-bottom:6pt">Tumor specificity categories</div>
+        <div style="font-size:9px;font-weight:700;color:#444;margin-bottom:6pt">Off-tissue risk tiers</div>
         <table %s>
-          <thead><tr><th %s>Category</th><th %s>Criterion</th></tr></thead>
+          <thead><tr><th %s>Tier</th><th %s>Criterion</th></tr></thead>
           <tbody>%s</tbody>
         </table>
         <div style="font-size:7.5px;color:black;margin-top:6pt">
-          Low expression threshold: top 25%% (Q3) &lt; 1 TPM
+          Low expression threshold: Q3 &lt; 1 TPM. Tissue criticality classifications reflect project-specific safety assumptions, not universal clinical standards.
         </div>
       </div>
     </div>

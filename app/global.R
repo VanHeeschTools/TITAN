@@ -236,7 +236,7 @@ rc_color_map <- c(
   huvec_Umbilical               = "#FFB08E",  # Artery (vascular endothelium)
   Myoblast_muscle               = "#C4D4AC",  # Muscle
   primary_brain                 = "#90AFD4",  # Brain
-  primary_corneal_eye           = "#AAAAAA",  # no GTEx match
+  primary_corneal_eye           = "#C2B2A1",  # no GTEx match
   primary_fibroblast_connective = "#E1CEA9",  # Skin (dermal fibroblasts)
   primary_heart                 = "#EC8675",  # Heart
   primary_kidney                = "#BCB9EB",  # Kidney
@@ -265,7 +265,7 @@ rc_color_map <- c(
   HepG2_liver                   = "#ECF3A8",  # Liver
   hesc_embryonic                = "#AAAAAA",  # no tissue equivalent (hESC)
   HFF_skin                      = "#E1CEA9",  # Skin
-  hTERT_RPE1_eye                = "#AAAAAA",  # no GTEx match (RPE)
+  hTERT_RPE1_eye                = "#C2B2A1",  # no GTEx match (RPE)
   Huh7_liver                    = "#ECF3A8",  # Liver
   IMR90_lung                    = "#DCD4AD",  # Lung
   iPSC_brain                    = "#90AFD4",  # Brain
@@ -398,6 +398,7 @@ off_tissue_risk_pediatric <- c(
 # dim_pct_samples:  pmin(expr_pct/100,1)*w          [0,w]
 # dim_expr_level:   pmin(TPM/(max*0.5),1)*w          [0,w]
 # dim_tumor_spec:   case(only→1, enriched→0.5, else→0)*w [0,w]
+# dim_off_tissue:   off_tissue_risk: Safe=1, Acceptable=0.75, Borderline=0.5, Critical=0.25           [0,w]
 # dim_gtex_penalty: -pmin(GTEx/max,1)*w              [-w,0]
 # priority_score:   raw/total_w * 100                [0,100]
 
@@ -407,7 +408,8 @@ off_tissue_risk_pediatric <- c(
 WEIGHT_META <- list(
   list(id="w_pct_samples",  label="% expressed (RNA-seq)",    hint="many tumor samples express the ORF",             radar="Expr. %",    group="Tumor coverage",  pancancer=0.4, specific=0.4),
   list(id="w_pct_transl",   label="% translated (Ribo-seq)",  hint="many tumor samples translate the ORF",           radar="Transl. %",  group="Tumor coverage",  pancancer=0.5, specific=0.5),
-  list(id="w_tumor_spec",   label="Tumor specificity (GTEx)", hint="GTEx: tumor-only=1, enriched=0.5, non-specific=0",radar="Specificity",group="Specificity",    pancancer=0.6, specific=0.9),
+  list(id="w_tumor_spec",   label="Tumor specificity (GTEx)", hint="GTEx: tumor-only=1, enriched=0.5, non-specific=0",                         radar="Specificity",group="Specificity",    pancancer=0.6, specific=0.9),
+  list(id="w_off_tissue",   label="Off-tissue risk (GTEx)",   hint="Safety tier: Safe=1, Acceptable=0.75, Borderline=0.5, Critical=0.25",         radar="Off-tissue", group="Safety",        pancancer=0.7, specific=0.7),
   list(id="w_gtex_penalty", label="GTEx expression level",    hint="expressed in normal tissues (GTEx)",             radar="GTEx",       group="Specificity",     pancancer=-0.6,specific=-0.9),
   list(id="w_tcga_cov",     label="TCGA tumor coverage",      hint="expressed in many TCGA tumor samples",           radar="TCGA T",     group="TCGA validation",   pancancer=0.6, specific=-0.3),
   list(id="w_peri_penalty", label="TCGA normal expression",   hint="expressed in peritumoral / normal TCGA samples", radar="TCGA N",     group="TCGA validation",      pancancer=-0.4,specific=-0.6),
