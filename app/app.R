@@ -309,7 +309,8 @@ ui <- page_navbar(
             class = "list-unstyled mb-0 small",
             lapply(
               c("shiny", "bslib", "DT", "plotly",
-                "dplyr", "tidyr", "stringr", "ggplot2", "shinyWidgets"),
+                "dplyr", "tidyr", "stringr", "ggplot2", "shinyWidgets",
+                "Biostrings", "rBLAST"),
               function(pkg) {
                 tags$li(class = "d-flex justify-content-between py-1 border-bottom",
                   tags$code(pkg),
@@ -512,24 +513,42 @@ ui <- page_navbar(
     conditionalPanel(
       condition = "output.has_started == true",
 
-      card(
-        card_header("Protein sequence & peptide matches"),
-        card_body(class = "p-2", uiOutput("detail_protein_seq_ui"))
-      ),
-
       layout_columns(
         col_widths = c(6, 6),
-        card(card_header("Per-sample translation (ribo-seq PPM)"),
-             card_body(class = "p-2", plotlyOutput("plot_detail_ribo", height = "300px"))),
         card(
-          card_header("Prioritisation metrics"),
+          card_header("Protein sequence & peptide matches"),
+          card_body(class = "p-2", uiOutput("detail_protein_seq_ui"))
+        ),
+        card(
+          card_header(
+            class = "d-flex align-items-center justify-content-between",
+            tags$span(icon("shield-halved"), " Cross-reactivity"),
+            tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep")
+          ),
           card_body(
             class = "p-2",
-            style = "max-height:360px; overflow-y:auto;",
-            uiOutput("detail_metric_badges"),
-            hr(class = "my-2"),
-            tableOutput("detail_metric_table")
+            tags$strong(class = "small text-secondary d-block mb-1", "Canonical self-proteins"),
+            uiOutput("xreact_status_ui"),
+            DTOutput("xreact_hits_dt"),
+            tags$hr(class = "my-2"),
+            tags$strong(class = "small text-secondary d-block mb-1", "Allergens (non-self)"),
+            uiOutput("allergen_status_ui"),
+            DTOutput("allergen_hits_dt")
           )
+        )
+      ),
+
+      card(
+        class = "mt-2",
+        card_header(
+          class = "d-flex align-items-center justify-content-between",
+          tags$span(icon("dna"), " BLAST homology"),
+          tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep · ≥50% id, ≥30% cov")
+        ),
+        card_body(
+          class = "p-2",
+          uiOutput("blast_status_ui"),
+          DTOutput("blast_hits_dt")
         )
       )
     )
@@ -591,6 +610,28 @@ ui <- page_navbar(
           tags$li(tags$b(m$label), " - ", m$hint, tags$span(class="text-muted small ms-1", paste0("(", m$group, ")")))
         })),
         tags$hr(),
+        tags$h6("ORF Detail — safety checks"),
+        tags$ul(
+          tags$li(tags$b("Canonical cross-reactivity (Biostrings):"),
+                  " exact and 1-mismatch peptide matching against the Ensembl 114 proteome",
+                  " (~60–80 K deduplicated sequences, all annotated isoforms); results collapsed",
+                  " to gene level (ENSG) with isoform count."),
+          tags$li(tags$b("Allergen cross-reactivity (Biostrings):"),
+                  " same matching strategy against UniProt KW-0020 reviewed allergen proteins."),
+          tags$li(tags$b("BLAST homology (blastp):"),
+                  " full-protein search against the Ensembl 114 deduplicated proteome;",
+                  " hits filtered to ≥ 50 % identity AND ≥ 30 % alignment coverage;",
+                  " annotated with gene description from an offline Ensembl 114 biomaRt lookup.")
+        ),
+        tags$p(class = "text-muted small mb-0",
+               "Reference databases are built once via ",
+               tags$code("app/scripts/01_prep_ensembl_pep.sbatch"),
+               ", ",
+               tags$code("02_prep_allergen.sbatch"),
+               ", and ",
+               tags$code("03_prep_annotation.sbatch"),
+               ". All checks run offline at app runtime — no internet access required."),
+        tags$hr(),
         uiOutput("about_data_info")
       )
     )
@@ -606,6 +647,17 @@ server <- function(input, output, session) {
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
   show_upload_rv <- reactiveVal(FALSE)
+
+  # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
+  # Per-orf session caches; all keyed by orf_id.
+  xreact_cache_rv   <- reactiveVal(list())
+  allergen_cache_rv <- reactiveVal(list())
+  blast_cache_rv    <- reactiveVal(list())
+  modal_gene_rv     <- reactiveVal(NULL)   # list(gid=ENSG, sym=gene_symbol)
+
+  # BLAST fires 750 ms after the user stops changing candidates.
+  # xreact + allergen observe input$detail_orf_id directly (fast, no debounce needed).
+  detail_orf_id_debounced <- debounce(reactive(input$detail_orf_id), 750)
 
   orf_table_rv <- reactive({
     req(app_data_rv())
@@ -1073,16 +1125,17 @@ server <- function(input, output, session) {
 
   ms_meta <- reactive({
     req(ms_data(), input$pep_col)
-    cols      <- colnames(ms_data())
-    score_col <- intersect(PSM_QUALITY_COLS, cols)[1]  # first available, NA if none
-    ms_data() %>%
-      rename(matched_peptide = !!input$pep_col) %>%
-      group_by(matched_peptide) %>%
-      slice_max(
-        order_by = if (!is.na(score_col)) .data[[score_col]] else row_number(),
-        n = 1, with_ties = FALSE
-      ) %>%
-      ungroup()
+    ms        <- ms_data()
+    # Base-R rename: avoids !! / tidy-eval entirely, works on any dplyr version
+    names(ms)[names(ms) == input$pep_col] <- "matched_peptide"
+    score_col <- intersect(PSM_QUALITY_COLS, names(ms))[1L]
+    grp <- group_by(ms, matched_peptide)
+    # Resolve branch outside dplyr so slice_max receives a concrete expression
+    if (!is.na(score_col)) {
+      grp %>% slice_max(order_by = .data[[score_col]], n = 1L, with_ties = FALSE) %>% ungroup()
+    } else {
+      grp %>% slice(1L) %>% ungroup()
+    }
   })
 
   matched_data <- reactive({
@@ -2023,6 +2076,158 @@ server <- function(input, output, session) {
     out
   })
 
+  # ── Expression modal (from xreact / BLAST hit row clicks) ─────────────────
+  output$modal_expr_plot <- renderPlotly({
+    mg <- modal_gene_rv()
+    req(!is.null(mg))
+    gid       <- mg$gid
+    log_scale <- isTRUE((input$modal_expr_scale %||% "log") == "log")
+    y_label   <- if (log_scale) "log(TPM+1)" else "TPM"
+    y_ref     <- if (log_scale) log(2) else 1
+
+    apply_scale <- function(x) if (log_scale) log(pmax(as.numeric(x), 0) + 1) else pmax(as.numeric(x), 0)
+
+    make_box_args <- function(fill_hex) list(
+      type = "box", boxpoints = "all", jitter = 0.35, pointpos = 0,
+      fillcolor    = paste0(fill_hex, "1F"),
+      line         = list(color = fill_hex, width = 1.5),
+      whiskerwidth = 0.5, showlegend = FALSE, hoveron = "boxes",
+      marker       = list(symbol = "circle-open", size = 5, opacity = 0.5, color = fill_hex)
+    )
+    no_data_plot <- function(x_title, msg) {
+      plot_ly(type = "scatter", mode = "markers", x = 0, y = 0,
+              marker = list(opacity = 0)) %>%
+        layout(xaxis = list(title = x_title, showticklabels = FALSE),
+               yaxis = list(title = ""),
+               annotations = list(list(
+                 text = msg, x = 0.5, y = 0.5,
+                 xref = "paper", yref = "paper", showarrow = FALSE,
+                 font = list(size = 10, color = "#6C757D"))))
+    }
+
+    # Plot 1: Target tumor
+    rna_mat  <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
+    rna_meta <- tryCatch(rna_meta_rv(), error = function(e) NULL)
+    if (!is.null(rna_mat) && isTRUE(gid %in% rownames(rna_mat))) {
+      tpm_raw <- as.numeric(rna_mat[gid, ])
+      grp_col <- if (!is.null(rna_meta)) {
+        label_col <- if ("condition"   %in% colnames(rna_meta)) rna_meta$condition
+                     else if ("tissue_type" %in% colnames(rna_meta)) rna_meta$tissue_type
+                     else rep("Tumor", nrow(rna_meta))
+        label_col[match(colnames(rna_mat), rna_meta$sample_id)]
+      } else rep("Tumor", length(tpm_raw))
+      grp_col[is.na(grp_col)] <- "Tumor"
+      df_t <- data.frame(g = grp_col, y = apply_scale(tpm_raw))
+      p1 <- do.call(plot_ly, c(list(df_t, x = ~g, y = ~y), make_box_args("#28646E"))) %>%
+        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
+               yaxis = list(title = y_label))
+    } else {
+      p1 <- no_data_plot("Target tumor", "No RNA-seq matrix") %>%
+        layout(yaxis = list(title = y_label))
+    }
+
+    # Plot 2: GTEx
+    gtex_mat  <- tryCatch(gtex_tpm_rv(), error = function(e) NULL)
+    gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
+    if (!is.null(gtex_mat) && isTRUE(gid %in% rownames(gtex_mat))) {
+      gtex_raw   <- as.numeric(gtex_mat[gid, ])
+      tissue_raw <- gtex_meta$tissue_type[match(colnames(gtex_mat), gtex_meta$sample_id)]
+      tissue_raw[is.na(tissue_raw)] <- "Unknown"
+      tissue     <- gsub("_", " ", tissue_raw)
+      gtex_y     <- apply_scale(gtex_raw)
+      med_by_tis <- tapply(gtex_y, tissue, median, na.rm = TRUE)
+      sorted_tis <- names(sort(med_by_tis, decreasing = TRUE))
+      tis_col_map <- setNames(
+        sapply(unique(tissue_raw), function(t) {
+          idx <- match(t, gtex_colors_subtissue$Tissue)
+          if (!is.na(idx)) return(gtex_colors_subtissue$ColorHex[idx])
+          gtex_keys <- names(gtex_colors)
+          hits_c <- gtex_keys[startsWith(t, gtex_keys)]
+          if (length(hits_c)) gtex_colors[[hits_c[which.max(nchar(hits_c))]]] else "#BBBBBB"
+        }),
+        gsub("_", " ", unique(tissue_raw))
+      )
+      df_g <- data.frame(g = factor(tissue, levels = sorted_tis), y = gtex_y)
+      p2 <- plot_ly()
+      for (tis in sorted_tis) {
+        d <- df_g[as.character(df_g$g) == tis, , drop = FALSE]
+        if (nrow(d) == 0L) next
+        col <- tis_col_map[[tis]] %||% "#BBBBBB"
+        p2 <- do.call(add_trace, c(list(p2, data = d, x = ~g, y = ~y), make_box_args(col)))
+      }
+      p2 <- p2 %>% layout(
+        xaxis = list(title = list(text = "GTEx", standoff = 4),
+                     tickangle = -45, automargin = TRUE,
+                     categoryorder = "array", categoryarray = sorted_tis),
+        yaxis = list(title = "")
+      )
+    } else {
+      p2 <- no_data_plot("GTEx", "GTEx matrix not in app data")
+    }
+
+    # Plot 3: TCGA
+    tcga_mat  <- tryCatch(tcga_tpm_rv(), error = function(e) NULL)
+    tcga_meta <- tryCatch(tcga_meta_rv(), error = function(e) NULL)
+    if (!is.null(tcga_mat) && isTRUE(gid %in% rownames(tcga_mat))) {
+      tcga_raw    <- as.numeric(tcga_mat[gid, ])
+      grp         <- tcga_meta$group[match(colnames(tcga_mat), tcga_meta$sample_id)]
+      grp[is.na(grp)] <- "Unknown"
+      tcga_y      <- apply_scale(tcga_raw)
+      unique_grps <- unique(grp)
+      grp_medians <- tapply(tcga_y, grp, median, na.rm = TRUE)
+      ct_codes    <- unique(sub(" .*", "", unique_grps))
+      pair_key    <- vapply(ct_codes, function(ct) {
+        meds <- grp_medians[sub(" .*", "", names(grp_medians)) == ct]
+        if (length(meds) == 0L) -Inf else max(meds, na.rm = TRUE)
+      }, numeric(1))
+      ct_sorted   <- ct_codes[order(pair_key, decreasing = TRUE)]
+      grp_order   <- unlist(lapply(ct_sorted, function(ct) {
+        grps <- unique_grps[sub(" .*", "", unique_grps) == ct]
+        grps[order(match(sub(".* ", "", grps), c("Tumor", "Normal")))]
+      }), use.names = FALSE)
+      grp_factor  <- factor(grp, levels = grp_order)
+      df_c <- data.frame(g = grp_factor, y = tcga_y)
+      p3 <- plot_ly()
+      for (lvl in grp_order) {
+        d <- df_c[as.character(df_c$g) == lvl, , drop = FALSE]
+        if (nrow(d) == 0L) next
+        ct_code <- sub(" .*", "", lvl)
+        col <- if (grepl("Normal", lvl, ignore.case = TRUE))
+          tcga_colors_normal[[ct_code]] %||% "#87C8D4"
+        else
+          tcga_colors_tumor[[ct_code]] %||% "#3B95A5"
+        p3 <- do.call(add_trace, c(list(p3, data = d, x = ~g, y = ~y), make_box_args(col)))
+      }
+      p3 <- p3 %>% layout(
+        xaxis = list(title = list(text = "TCGA", standoff = 4),
+                     tickangle = -45, automargin = TRUE,
+                     categoryorder = "array", categoryarray = grp_order),
+        yaxis = list(title = "")
+      )
+    } else {
+      p3 <- no_data_plot("TCGA", "TCGA matrix not in app data")
+    }
+
+    out <- subplot(p1, p2, p3, nrows = 1, shareY = TRUE, titleX = TRUE,
+                   widths = c(0.12, 0.53, 0.35)) %>%
+      layout(
+        paper_bgcolor = "white", plot_bgcolor = "white",
+        margin = list(l = 5, r = 5, t = 10, b = 5),
+        font   = list(family = "Inter", size = 11)
+      ) %>%
+      config(
+        toImageButtonOptions = list(format = "svg", filename = "expression_modal"),
+        modeBarButtons = list(list("toImage"))
+      )
+    out$x$layout$shapes <- list(list(
+      type = "line",
+      xref = "paper", x0 = 0, x1 = 1,
+      yref = "y",     y0 = y_ref, y1 = y_ref,
+      line = list(color = "#BBBBBB", width = 1.5, dash = "dash")
+    ))
+    out
+  })
+
   # ── Translation card: Target / Ribocrypt ──────────────────────────────────
   output$plot_prio_transl <- renderPlotly({
     req(nrow(selected_prio_row()) > 0)
@@ -2301,82 +2506,6 @@ server <- function(input, output, session) {
     )
   })
 
-  output$detail_metric_badges <- renderUI({
-    req(nrow(detail_orf()) > 0)
-    o <- detail_orf()
-    badges <- list()
-    if (isTRUE(as.logical(o$GTEX_tumor_only)))
-      badges[[length(badges) + 1]] <- pill_badge("GTEx tumor-only",           "success")
-    if (isTRUE(as.logical(o$GTEX_tumor_enriched)))
-      badges[[length(badges) + 1]] <- pill_badge("GTEx tumor-enriched",       "primary")
-    if (isTRUE(as.logical(o$GTEX_DE_sig_in_all)))
-      badges[[length(badges) + 1]] <- pill_badge("DE significant (all GTEx)", "info")
-    if (length(badges) == 0)
-      badges[[1]] <- tags$span(class = "text-muted small", "No tumor-specificity flags")
-    div(badges)
-  })
-
-  output$detail_metric_table <- renderTable({
-    req(nrow(detail_orf()) > 0)
-    o <- detail_orf()
-    rows <- list(
-      c("Translation - % samples (PPM ≥ threshold)",   fmt1(o$target_translation_pct_samples)),
-      c("Translation - median PPM",                     fmt2(o$target_translation_median_PPM)),
-      c("Translation - max PPM",                        fmt2(o$target_translation_max_PPM)),
-      c("Translation - median psites",                  fmt2(o$target_translation_median_psites)),
-      c("Expression - % samples (TPM ≥ threshold)",     fmt1(o$target_expression_pct_samples)),
-      c("Expression - median TPM",                      fmt2(o$target_expression_median_TPM)),
-      c("GTEx - DE sig. in all tissues",                bool_fmt(o$GTEX_DE_sig_in_all)),
-      c("GTEx - tumor-enriched",                       bool_fmt(o$GTEX_tumor_enriched)),
-      c("GTEx - tumor-only",                           bool_fmt(o$GTEX_tumor_only)),
-      c("GTEx - median TPM (all samples)",              fmt2(o$GTEX_median_TPM)),
-      c("GTEx - max tissue median TPM",                 fmt2(o$GTEX_max_median_TPM)),
-      c("TCGA - % tumor samples (TPM ≥ 1)",           fmt1(o$TCGA_tumor_pct_samples)),
-      c("TCGA - median TPM (tumor)",                   fmt2(o$TCGA_tumor_median_TPM)),
-      c("TCGA - % normal samples (TPM ≥ 1)",           fmt1(o$TCGA_normal_pct_samples)),
-      c("TCGA - median TPM (normal)",                   fmt2(o$TCGA_normal_median_TPM)),
-      c("Ribocrypt - % primary samples (PPM ≥ 1)",     fmt1(o$ribocrypt_primary_pct_samples)),
-      c("Ribocrypt - median PPM (primary)",             fmt2(o$ribocrypt_primary_median_PPM)),
-      c("Ribocrypt - % cell-line samples (PPM ≥ 1)",   fmt1(o$`ribocrypt_cell-line_pct_samples`)),
-      c("Ribocrypt - median PPM (cell lines)",          fmt2(o$`ribocrypt_cell-line_median_PPM`))
-    )
-    df <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
-    colnames(df) <- c("Metric", "Value")
-    df
-  }, striped = TRUE, hover = TRUE, bordered = FALSE, spacing = "xs",
-     width = "100%", colnames = TRUE)
-
-  output$plot_detail_ribo <- renderPlotly({
-    req(nrow(detail_orf()) > 0)
-    oid     <- input$detail_orf_id
-    ribo_m  <- ribo_ppm_rv()
-    ribo_sm <- ribo_meta_rv()
-    if (!oid %in% rownames(ribo_m))
-      return(plot_ly() %>% layout(title = "No ribo-seq data for this ORF",
-                                  paper_bgcolor = "white") %>% config(displayModeBar = FALSE))
-    ppm_vals <- ribo_m[oid, ]
-    df <- data.frame(
-      sample    = names(ppm_vals),
-      ppm       = log10(as.numeric(ppm_vals)+0.1),
-      condition = ribo_sm$condition[match(names(ppm_vals), ribo_sm$sample_id)]
-    )
-    plot_ly(df, x = ~sample, y = ~ppm, type = "bar",
-            marker = list(color = "#317A87",
-                          line = list(color =  "#28646E", 
-                                      width = 1.5)),
-            text = ~round(ppm, 2), textposition = "outside",
-            hovertemplate = "%{x}<br>PPM: %{y:.2f}<extra></extra>") %>%
-      layout(
-        xaxis  = list(title = "", tickangle = -45, automargin = TRUE),
-        yaxis  = list(title = "Psites per million (PPM)",
-                      showgrid = TRUE, gridcolor = "#EEF2F7"),
-        legend = list(title = list(text = "Condition"), orientation = "h", y = -0.3),
-        paper_bgcolor = "white", plot_bgcolor = "white",
-        margin = list(l = 10, r = 10, t = 10, b = 100),
-        font   = list(family = "Inter", size = 11)
-      ) %>% config(displayModeBar = FALSE)
-  })
-
   output$detail_protein_seq_ui <- renderUI({
     req(nrow(detail_orf()) > 0)
     seq <- detail_orf()$protein_seq
@@ -2406,6 +2535,339 @@ server <- function(input, output, session) {
     }
 
     render_protein_seq_html(seq, peps, pep_info)
+  })
+
+  # ── Cross-reactivity — Ensembl 114 pep (self), auto-trigger, immediate ───────
+  # Results stored gene-level: one row per (peptide, gene) after collapsing isoforms.
+  # Columns: Peptide, Gene_sym, ENSG, Mismatches, N_isoforms
+
+  observeEvent(input$detail_orf_id, {
+    req(input$detail_orf_id)
+    oid <- input$detail_orf_id
+    modal_gene_rv(NULL)
+
+    # xreact
+    if (is.null(xreact_cache_rv()[[oid]])) {
+      md   <- tryCatch(matched_data(), error = function(e) NULL)
+      peps <- if (!is.null(md)) unique(md$matched_peptide[md$orf_id == oid]) else character(0)
+
+      store_xr <- function(result) {
+        cache <- xreact_cache_rv(); cache[[oid]] <- result; xreact_cache_rv(cache)
+      }
+
+      if (length(peps) == 0L) {
+        store_xr(data.frame())
+      } else if (is.null(ensembl_pep_index) || length(ensembl_pep_index$seqs) == 0L) {
+        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/01_prep_ensembl_pep.sbatch first."))
+      } else {
+        ref_set <- Biostrings::AAStringSet(ensembl_pep_index$seqs)
+        ref_md5 <- names(ensembl_pep_index$seqs)   # md5 hashes as names
+        hits <- do.call(rbind, Filter(Negate(is.null), lapply(peps, function(pep) {
+          pep_aa <- tryCatch(Biostrings::AAString(pep), error = function(e) NULL)
+          if (is.null(pep_aa)) return(NULL)
+          m0 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 0L, fixed = TRUE),
+                         error = function(e) NULL)
+          m1 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 1L, fixed = TRUE),
+                         error = function(e) NULL)
+          exact_md5 <- if (!is.null(m0)) ref_md5[which(lengths(m0) > 0L)] else character(0)
+          near_md5  <- if (!is.null(m1)) setdiff(ref_md5[which(lengths(m1) > 0L)], exact_md5) else character(0)
+          if (!length(exact_md5) && !length(near_md5)) return(NULL)
+          collapse_to_genes <- function(md5s, mm) {
+            if (!length(md5s)) return(NULL)
+            rows <- do.call(rbind, lapply(md5s, function(md5) {
+              ensg_vec <- ensembl_pep_index$md5_to_ensg[[md5]]
+              sym_vec  <- ensembl_pep_index$md5_to_sym[[md5]]
+              n_ensp   <- length(ensembl_pep_index$md5_to_ensp[[md5]])
+              data.frame(Peptide = pep, Gene_sym = sym_vec %||% "unknown",
+                         ENSG = ensg_vec %||% NA_character_,
+                         Mismatches = mm, N_isoforms = n_ensp,
+                         stringsAsFactors = FALSE)
+            }))
+            rows[!duplicated(rows$ENSG), , drop = FALSE]
+          }
+          rbind(collapse_to_genes(exact_md5, 0L), collapse_to_genes(near_md5, 1L))
+        })))
+        # Final dedup across peptides: keep worst (lowest) Mismatches per gene
+        if (!is.null(hits) && nrow(hits) > 0L) {
+          hits <- hits[order(hits$ENSG, hits$Mismatches), ]
+          hits <- hits[!duplicated(hits$ENSG), ]
+        }
+        store_xr(if (is.null(hits)) data.frame() else hits)
+      }
+    }
+
+    # allergen
+    if (is.null(allergen_cache_rv()[[oid]])) {
+      md   <- tryCatch(matched_data(), error = function(e) NULL)
+      peps <- if (!is.null(md)) unique(md$matched_peptide[md$orf_id == oid]) else character(0)
+
+      store_al <- function(result) {
+        cache <- allergen_cache_rv(); cache[[oid]] <- result; allergen_cache_rv(cache)
+      }
+
+      if (length(peps) == 0L) {
+        store_al(data.frame())
+      } else if (is.null(allergen_index) || length(allergen_index$seqs) == 0L) {
+        store_al(data.frame(Error = "Allergen index not loaded — run scripts/02_prep_allergen.sbatch first."))
+      } else {
+        al_set   <- Biostrings::AAStringSet(allergen_index$seqs)
+        al_names <- names(allergen_index$seqs)  # "ENTRY|ACC"
+        al_hits <- do.call(rbind, Filter(Negate(is.null), lapply(peps, function(pep) {
+          pep_aa <- tryCatch(Biostrings::AAString(pep), error = function(e) NULL)
+          if (is.null(pep_aa)) return(NULL)
+          m0 <- tryCatch(Biostrings::vmatchPattern(pep_aa, al_set, max.mismatch = 0L, fixed = TRUE),
+                         error = function(e) NULL)
+          m1 <- tryCatch(Biostrings::vmatchPattern(pep_aa, al_set, max.mismatch = 1L, fixed = TRUE),
+                         error = function(e) NULL)
+          exact_idx <- if (!is.null(m0)) which(lengths(m0) > 0L) else integer(0)
+          near_idx  <- if (!is.null(m1)) setdiff(which(lengths(m1) > 0L), exact_idx) else integer(0)
+          if (!length(exact_idx) && !length(near_idx)) return(NULL)
+          nm <- al_names[c(exact_idx, near_idx)]
+          acc      <- sub(".*\\|", "", nm)
+          gene_sym <- ifelse(acc %in% names(allergen_index$acc_to_sym),
+                             allergen_index$acc_to_sym[acc], sub("\\|.*", "", nm))
+          data.frame(Peptide = pep, Hit = nm, Gene_sym = gene_sym,
+                     Mismatches = c(rep(0L, length(exact_idx)), rep(1L, length(near_idx))),
+                     stringsAsFactors = FALSE)
+        })))
+        store_al(if (is.null(al_hits)) data.frame() else al_hits)
+      }
+    }
+  }, ignoreInit = FALSE, ignoreNULL = TRUE)
+
+  output$xreact_status_ui <- renderUI({
+    req(input$detail_orf_id)
+    xr <- xreact_cache_rv()[[input$detail_orf_id]]
+    if (is.null(xr))
+      return(div(class = "d-flex align-items-center gap-2 text-muted small mb-1",
+                 tags$span(class = "spinner-border spinner-border-sm"), " Checking…"))
+    if ("Error" %in% names(xr))
+      return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", xr$Error[1L]))
+    if (nrow(xr) == 0L)
+      return(tags$p(class = "text-success small mb-1",
+                    icon("circle-check"), " No canonical matches (exact or 1 mismatch)."))
+    n_exact <- sum(xr$Mismatches == 0L, na.rm = TRUE)
+    n_near  <- sum(xr$Mismatches == 1L, na.rm = TRUE)
+    label <- paste0(
+      if (n_exact > 0L) paste0(n_exact, " exact gene(s)"),
+      if (n_exact > 0L && n_near > 0L) ", ",
+      if (n_near  > 0L) paste0(n_near, " 1-mismatch gene(s)")
+    )
+    tags$p(class = "fw-semibold small text-warning mb-1",
+           icon("triangle-exclamation"), " ", label,
+           ". Click a row to view expression.")
+  })
+
+  output$xreact_hits_dt <- DT::renderDT({
+    req(input$detail_orf_id)
+    xr <- xreact_cache_rv()[[input$detail_orf_id]]
+    if (is.null(xr) || "Error" %in% names(xr) || nrow(xr) == 0L) return(NULL)
+    xrs <- xr[order(xr$Mismatches, xr$Gene_sym), ]
+    DT::datatable(
+      data.frame(Peptide = xrs$Peptide, Gene = xrs$Gene_sym, ENSG = xrs$ENSG,
+                 Mismatches = xrs$Mismatches, Isoforms = xrs$N_isoforms,
+                 stringsAsFactors = FALSE),
+      selection = "single", rownames = FALSE,
+      options   = list(pageLength = 5, dom = "tp", scrollX = TRUE),
+      class     = "compact stripe"
+    )
+  })
+
+  observeEvent(input$xreact_hits_dt_rows_selected, {
+    idx <- input$xreact_hits_dt_rows_selected
+    req(length(idx) > 0L, input$detail_orf_id)
+    xr <- xreact_cache_rv()[[input$detail_orf_id]]
+    req(!is.null(xr), nrow(xr) > 0L, !"Error" %in% names(xr))
+    xrs      <- xr[order(xr$Mismatches, xr$Gene_sym), ]
+    row      <- xrs[idx, ]
+    gid      <- row$ENSG
+    gene_sym <- row$Gene_sym
+    if (is.na(gid) || !nzchar(gid)) {
+      showNotification(paste0("No ENSG ID for ", gene_sym, " — cannot load expression."),
+                       type = "message", duration = 4)
+      return()
+    }
+    modal_gene_rv(list(gid = gid, sym = gene_sym))
+    showModal(modalDialog(
+      title = paste("Expression:", gene_sym), size = "xl", easyClose = TRUE,
+      footer = modalButton("Close"),
+      radioButtons("modal_expr_scale", "Y axis:",
+                   choices = c("log(TPM+1)" = "log", "Raw TPM" = "raw"),
+                   selected = "log", inline = TRUE),
+      plotlyOutput("modal_expr_plot", height = "420px")
+    ))
+  })
+
+  output$allergen_status_ui <- renderUI({
+    req(input$detail_orf_id)
+    al <- allergen_cache_rv()[[input$detail_orf_id]]
+    if (is.null(al))
+      return(div(class = "d-flex align-items-center gap-2 text-muted small mb-1",
+                 tags$span(class = "spinner-border spinner-border-sm"), " Checking…"))
+    if ("Error" %in% names(al))
+      return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", al$Error[1L]))
+    if (nrow(al) == 0L)
+      return(tags$p(class = "text-success small mb-1",
+                    icon("circle-check"), " No allergen matches (exact or 1 mismatch)."))
+    n_exact <- sum(al$Mismatches == 0L, na.rm = TRUE)
+    n_near  <- sum(al$Mismatches == 1L, na.rm = TRUE)
+    label <- paste0(
+      if (n_exact > 0L) paste0(n_exact, " exact"),
+      if (n_exact > 0L && n_near > 0L) ", ",
+      if (n_near  > 0L) paste0(n_near, " 1-mismatch")
+    )
+    tags$p(class = "fw-semibold small text-danger mb-1",
+           icon("triangle-exclamation"), " ", label, " allergen hit(s).")
+  })
+
+  output$allergen_hits_dt <- DT::renderDT({
+    req(input$detail_orf_id)
+    al <- allergen_cache_rv()[[input$detail_orf_id]]
+    if (is.null(al) || "Error" %in% names(al) || nrow(al) == 0L) return(NULL)
+    als <- al[order(al$Mismatches, al$Gene_sym), ]
+    DT::datatable(
+      data.frame(Peptide = als$Peptide, Allergen = als$Hit, Gene = als$Gene_sym,
+                 Mismatches = als$Mismatches, stringsAsFactors = FALSE),
+      selection = "none", rownames = FALSE,
+      options   = list(pageLength = 5, dom = "tp", scrollX = TRUE),
+      class     = "compact stripe"
+    )
+  })
+
+  # ── BLAST homology — Ensembl 114 pep, debounced 750 ms ───────────────────────
+  # Threshold: ≥50% identity AND ≥30% alignment coverage (coverage = alnlen/qlen).
+  # Result columns: Gene_sym, ENSG, pident, coverage, E_value, Description.
+
+  observeEvent(detail_orf_id_debounced(), {
+    oid <- detail_orf_id_debounced()
+    req(oid)
+    if (!is.null(blast_cache_rv()[[oid]])) return()   # cache hit — skip
+    orf_seq <- tryCatch(detail_orf()$protein_seq, error = function(e) NA_character_)
+    if (is.na(orf_seq) || !nzchar(orf_seq)) return()
+
+    store_bl <- function(result) {
+      cache <- blast_cache_rv(); cache[[oid]] <- result; blast_cache_rv(cache)
+    }
+
+    db <- REF_DB_ENSEMBL
+    if (!file.exists(paste0(db, ".pdb")) && !file.exists(paste0(db, ".phr"))) {
+      store_bl(data.frame(Error = paste0("BLAST database not found: ", db,
+                                         " — run scripts/01_prep_ensembl_pep.sbatch first.")))
+      return()
+    }
+    if (!nzchar(Sys.which("blastp"))) {
+      store_bl(data.frame(Error = "blastp not found in PATH."))
+      return()
+    }
+
+    qlen <- nchar(orf_seq)
+    hits <- tryCatch({
+      bl  <- rBLAST::blast(db = db, type = "blastp")
+      qry <- Biostrings::AAStringSet(c(query = orf_seq))
+      predict(bl, qry, BLAST_args = "-evalue 0.001 -max_target_seqs 50")
+    }, error = function(e) data.frame(Error = e$message))
+
+    if ("Error" %in% names(hits)) { store_bl(hits); return() }
+    if (is.null(hits) || nrow(hits) == 0L) { store_bl(data.frame()); return() }
+
+    # Apply thresholds: ≥50% identity AND ≥30% coverage
+    pident_num <- as.numeric(hits$pident)
+    aln_len    <- as.integer(hits$length)
+    coverage   <- round(aln_len / qlen * 100, 1)
+    keep       <- !is.na(pident_num) & pident_num >= 50 & coverage >= 30
+    hits       <- hits[keep, , drop = FALSE]
+    pident_num <- pident_num[keep]
+    coverage   <- coverage[keep]
+
+    if (nrow(hits) == 0L) { store_bl(data.frame()); return() }
+
+    # Back-map ENSP (sseqid) → ENSG + gene symbol via index
+    ensp       <- hits$sseqid
+    md5s       <- if (!is.null(ensembl_pep_index))
+                    ensembl_pep_index$ensp_to_md5[ensp] else rep(NA_character_, length(ensp))
+    ensg <- vapply(md5s, function(md5) {
+      if (is.na(md5) || is.null(ensembl_pep_index$md5_to_ensg[[md5]])) return(NA_character_)
+      ensembl_pep_index$md5_to_ensg[[md5]][1L]
+    }, character(1))
+    gene_sym <- vapply(md5s, function(md5) {
+      if (is.na(md5) || is.null(ensembl_pep_index$md5_to_sym[[md5]])) return(NA_character_)
+      ensembl_pep_index$md5_to_sym[[md5]][1L]
+    }, character(1))
+
+    # Annotate with description from offline gene annotation map
+    desc <- if (!is.null(ensembl_gene_annot) && "ensembl_gene_id" %in% names(ensembl_gene_annot)) {
+      idx_a <- match(ensg, ensembl_gene_annot$ensembl_gene_id)
+      ifelse(!is.na(idx_a), ensembl_gene_annot$description[idx_a], NA_character_)
+    } else rep(NA_character_, length(ensg))
+
+    result <- data.frame(
+      Gene_sym    = gene_sym,
+      ENSG        = ensg,
+      Identity    = paste0(round(pident_num, 1), "%"),
+      pident      = pident_num,
+      Coverage    = paste0(coverage, "%"),
+      coverage    = coverage,
+      E_value     = formatC(as.numeric(hits$evalue), format = "e", digits = 1),
+      Description = ifelse(is.na(desc), "", desc),
+      stringsAsFactors = FALSE
+    )
+    # Deduplicate to one row per gene (keep highest identity hit)
+    result <- result[order(result$ENSG, -result$pident), ]
+    result <- result[!duplicated(result$ENSG), ]
+    store_bl(result)
+  }, ignoreInit = FALSE, ignoreNULL = TRUE)
+
+  output$blast_status_ui <- renderUI({
+    req(input$detail_orf_id)
+    br <- blast_cache_rv()[[input$detail_orf_id]]
+    if (is.null(br))
+      return(div(class = "d-flex align-items-center gap-2 text-muted small mb-1",
+                 tags$span(class = "spinner-border spinner-border-sm"), " Running BLAST…"))
+    if ("Error" %in% names(br))
+      return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", br$Error[1L]))
+    if (nrow(br) == 0L)
+      return(tags$p(class = "text-success small mb-1",
+                    icon("circle-check"), " No homologous genes (≥50% identity, ≥30% coverage)."))
+    tags$p(class = "fw-semibold small text-warning mb-1", icon("dna"), " ",
+           sprintf("%d homologous gene(s). Click a row to view expression.", nrow(br)))
+  })
+
+  output$blast_hits_dt <- DT::renderDT({
+    req(input$detail_orf_id)
+    br <- blast_cache_rv()[[input$detail_orf_id]]
+    if (is.null(br) || "Error" %in% names(br) || nrow(br) == 0L) return(NULL)
+    DT::datatable(
+      data.frame(Gene = br$Gene_sym, ENSG = br$ENSG, Identity = br$Identity,
+                 Coverage = br$Coverage, E_value = br$E_value,
+                 Description = br$Description, stringsAsFactors = FALSE),
+      selection = "single", rownames = FALSE,
+      options   = list(pageLength = 5, dom = "tp", scrollX = TRUE),
+      class     = "compact stripe"
+    )
+  })
+
+  observeEvent(input$blast_hits_dt_rows_selected, {
+    idx <- input$blast_hits_dt_rows_selected
+    req(length(idx) > 0L, input$detail_orf_id)
+    br  <- blast_cache_rv()[[input$detail_orf_id]]
+    req(!is.null(br), nrow(br) > 0L, !"Error" %in% names(br))
+    row      <- br[idx, ]
+    gid      <- row$ENSG
+    gene_sym <- row$Gene_sym
+    if (is.na(gid) || !nzchar(gid %||% "")) {
+      showNotification(paste0("No ENSG ID for ", gene_sym, " — cannot load expression."),
+                       type = "message", duration = 4)
+      return()
+    }
+    modal_gene_rv(list(gid = gid, sym = gene_sym))
+    showModal(modalDialog(
+      title = paste("Expression:", gene_sym), size = "xl", easyClose = TRUE,
+      footer = modalButton("Close"),
+      radioButtons("modal_expr_scale", "Y axis:",
+                   choices = c("log(TPM+1)" = "log", "Raw TPM" = "raw"),
+                   selected = "log", inline = TRUE),
+      plotlyOutput("modal_expr_plot", height = "420px")
+    ))
   })
 
   # ── Report ───────────────────────────────────────────────────────────────────

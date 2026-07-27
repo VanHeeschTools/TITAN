@@ -1,0 +1,22 @@
+{
+  "version": "1.2",
+  "dbname": "ensembl114_pep",
+  "dbtype": "Protein",
+  "db-version": 5,
+  "description": "Ensembl_114_pep_dedup",
+  "number-of-letters": 38907984,
+  "number-of-sequences": 96613,
+  "last-updated": "2026-07-27T13:50:00",
+  "number-of-volumes": 1,
+  "bytes-total": 52080096,
+  "bytes-to-cache": 39777614,
+  "files": [
+    "ensembl114_pep.pdb",
+    "ensembl114_pep.phr",
+    "ensembl114_pep.pin",
+    "ensembl114_pep.pot",
+    "ensembl114_pep.psq",
+    "ensembl114_pep.ptf",
+    "ensembl114_pep.pto"
+  ]
+}

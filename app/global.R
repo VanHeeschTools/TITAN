@@ -50,11 +50,80 @@ n_ribo_samples <- 1L
 n_rna_samples  <- 1L
 biotypes       <- character(0)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CROSS-REACTIVITY REFERENCE DATA
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Load Bioconductor packages without attaching to avoid masking dplyr::slice, dplyr::filter etc.
+requireNamespace("Biostrings", quietly = TRUE)
+requireNamespace("rBLAST",     quietly = TRUE)
+
+# Prepend bundled blastp binary so rBLAST finds it without any module or Singularity
+local({
+  bin <- normalizePath("bin", mustWork = FALSE)
+  if (dir.exists(bin))
+    Sys.setenv(PATH = paste0(bin, ":", Sys.getenv("PATH")))
+})
+
+# BLAST database: Ensembl 114 pep (deduplicated), same release as pipeline
+REF_DB_ENSEMBL <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep/ensembl114_pep"
+
+# ── Ensembl 114 pep index (self-cross-reactivity + BLAST back-mapping) ────────
+# Built by scripts/01_prep_ensembl_pep.R. List with:
+#   $seqs         named character: md5 → AA sequence (deduplicated, ~60-80K)
+#   $md5_to_ensg  list: md5 → character vector of ENSG IDs
+#   $md5_to_sym   list: md5 → character vector of gene symbols
+#   $ensp_to_md5  named vector: ENSP → md5 (BLAST sseqid back-lookup)
+#   $rep_table    data.frame: one row per unique sequence
+ensembl_pep_index <- local({
+  f <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep/ensembl114_pep_index.rds"
+  if (!file.exists(f)) {
+    message("Ensembl 114 pep index not found — run scripts/01_prep_ensembl_pep.sbatch first")
+    return(NULL)
+  }
+  idx <- readRDS(f)
+  message(sprintf("Ensembl 114 pep: %d unique sequences loaded", length(idx$seqs)))
+  idx
+})
+
+# ── Allergen reference (non-self cross-reactivity) ────────────────────────────
+# Built by scripts/02_prep_allergen.R. List with:
+#   $seqs         named character: "ENTRY|ACC" → AA sequence
+#   $mnem_to_sym  named vector: mnemonic → gene symbol (GN= field)
+#   $acc_to_sym   named vector: UniProt accession → gene symbol
+#   $meta_df      data.frame: acc, entry, mnemonic, gene_sym
+allergen_index <- local({
+  f <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/allergen_uniprot/allergen_index.rds"
+  if (!file.exists(f)) {
+    message("Allergen index not found — run scripts/02_prep_allergen.sbatch first")
+    return(NULL)
+  }
+  idx <- readRDS(f)
+  message(sprintf("Allergen reference: %d sequences loaded", length(idx$seqs)))
+  idx
+})
+
+# ── Ensembl gene annotation (offline lookup for BLAST hit annotation) ─────────
+# Built by scripts/03_prep_annotation.R. data.frame columns:
+#   ensembl_gene_id, external_gene_name, uniprotswissprot, description
+ensembl_gene_annot <- local({
+  f <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep/ensembl_gene_annotation.rds"
+  if (!file.exists(f)) {
+    message("Ensembl gene annotation not found — run scripts/03_prep_annotation.sbatch first")
+    return(NULL)
+  }
+  df <- readRDS(f)
+  message(sprintf("Ensembl gene annotation: %d entries loaded", nrow(df)))
+  df
+})
+
 # ─────────────────────────────────────────────────────────────────────────────
 # GENCODE ORF TABLE  (optional; enables cross-matching against TransCode Phase 2)
 # ─────────────────────────────────────────────────────────────────────────────
+
 gencode_orf_tbl <- local({
-  f <- "data/gencode_orfs_phase2.csv"
+  f <- "ref/gencode_orfs_phase2.csv"
   if (!file.exists(f)) return(NULL)
   df <- tryCatch(
     data.table::fread(f, data.table = FALSE, showProgress = FALSE),

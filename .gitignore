@@ -27,3 +27,24 @@ slurm-*.out
 # ── Backups ─────────────────────────────────────────────────────────────────
 app/*.bak*
 app/R/*.bak*
+
+# ── bin/ — full BLAST distribution and source archive ────────────────────────
+# Only app/bin/blastp and app/bin/blastdbcmd (the PATH-exposed wrappers) are
+# used directly by the app at runtime. Everything else is setup tooling.
+app/bin/blastp.REAL
+app/bin/ncbi-blast-2.14.0+-x64-linux.tar.gz
+app/bin/ncbi-blast-2.14.0+/
+
+# ── ref/ — obsolete references ───────────────────────────────────────────────
+# SwissProt reference: superseded by Ensembl 114 pep (BLAST db + index)
+app/ref/swissprot_human/
+# Old BLAST Singularity image: app now uses the bundled blastp binary in bin/
+app/ref/ncbi_blast-2.14.0.sif
+
+# ── ref/ — raw source downloads (intermediate files, not read by app) ─────────
+# These are downloaded by the prep scripts and consumed to build the .rds /
+# BLAST db files. The app reads only the derived artefacts, never these directly.
+app/ref/ensembl114_pep/Homo_sapiens.GRCh38.pep.all.fa
+app/ref/ensembl114_pep/Homo_sapiens.GRCh38.pep.all.fa.gz
+app/ref/ensembl114_pep/ensembl114_pep_dedup.fa
+app/ref/allergen_uniprot/allergen_uniprot.fasta
