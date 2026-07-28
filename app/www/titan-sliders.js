@@ -128,3 +128,34 @@
   });
 
 })();
+
+/* ── Copy-to-clipboard helper ────────────────────────────────────────────────
+ * Called via onclick="titanCopy('text', this)" on .titan-copy-btn elements.
+ * Flashes a ✓ for 1.2 s, falls back to execCommand for non-HTTPS contexts.
+ */
+(function () {
+  'use strict';
+
+  window.titanCopy = function (text, btn) {
+    function flash() {
+      var orig = btn.innerHTML;
+      btn.innerHTML = '&#10003;';
+      btn.style.color = '#21AE7F';
+      setTimeout(function () { btn.innerHTML = orig; btn.style.color = ''; }, 1200);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(flash).catch(function () {
+        legacyCopy(text); flash();
+      });
+    } else {
+      legacyCopy(text); flash();
+    }
+    function legacyCopy(t) {
+      var ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  };
+})();

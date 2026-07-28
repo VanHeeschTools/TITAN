@@ -22,8 +22,156 @@ if (!exists("titan_theme")) source("global.R")
 if (!exists("fmt1"))        for (f in sort(list.files("R", pattern = "\\.R$", full.names = TRUE))) source(f)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ORF SELECTOR HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Build a plain-text label for the ORF dropdown.
+# Format: "{len} aa · {chr}:{start}–{end} ({strand})||{biotype}|{codon}"
+# Tier separator "||" splits primary (coords/length) from secondary (biotype|codon).
+# The orf_id (tertiary) is always available as item.value in JS.
+orf_option_labels <- function(tbl) {
+  primary <- paste0(
+    format(tbl$protein_length, big.mark = ",", scientific = FALSE, trim = TRUE), " aa · ",
+    tbl$chr, ":",
+    format(tbl$orf_start, big.mark = ",", scientific = FALSE, trim = TRUE),
+    "–",
+    format(tbl$orf_end,   big.mark = ",", scientific = FALSE, trim = TRUE),
+    " (", tbl$strand, ")"
+  )
+  paste0(primary, "||", tbl$orf_biotype_single, "|", tbl$start_codon)
+}
+
+# Small copy-to-clipboard button (uses titanCopy() defined in titan-sliders.js)
+copy_btn <- function(text) {
+  tags$button(
+    class   = "titan-copy-btn",
+    title   = "Copy",
+    onclick = paste0("titanCopy('", gsub("'", "\\'", text, fixed = TRUE), "',this)"),
+    icon("copy")
+  )
+}
+
+# Selectize JS render: three-tier option rows.
+# Tier 1 (primary)  : protein length + coordinates — the distinguishing info.
+# Tier 2 (secondary): biotype badge + start codon.
+# Tier 3 (tertiary) : orf_id hash — from item.value, not encoded in label.
+# Label is split on "||" (tiers) then "|" (within tier 2).
+# Mirrors BIOTYPE_COLORS from global.R. JS + avoids R arithmetic by using
+# a collapsed character vector.
+.orf_bio_col_js <- paste0(
+  "var BIO_COL={",
+  "'ORF-annotated':'#ED6A5A','Processed_transcript_ORF':'#F8A598',",
+  "'NC-variant':'#ADF7B6','uORF':'#ff7f00','uoORF':'#fdbf6f',",
+  "'dORF':'#F3D264','doORF':'#F8E39C','intORF':'#CDD1E0',",
+  "'lncRNA-ORF':'#F6B9FF','pseudogene-ORF':'#25CED1'",
+  "};"
+)
+.orf_parse_js <- paste0(
+  "var lbl=item.label||'';",
+  "var tiers=lbl.split('||');",
+  "var t1=tiers[0]||lbl;",
+  "var t2=tiers[1]||'';",
+  "var t2p=t2.split('|');",
+  "var bio=t2p[0]||'';",
+  "var codon=t2p[1]||'';",
+  "var col=BIO_COL[bio]||'#95A5A6';"
+)
+ORF_SELECTIZE_RENDER_JS <- I(paste(c(
+  "{",
+  "option:function(item,escape){",
+  .orf_bio_col_js, .orf_parse_js,
+  "var lenpart=t1.replace(/\\s.\\s.*$/,'');",
+  "(window._titanOrfCache=window._titanOrfCache||{})[item.value]={bio:bio,len:lenpart};",
+  "var h='<div class=\"titan-orf-opt\">';",
+  "h+='<div class=\"titan-orf-opt-primary\">'+escape(t1)+'</div>';",
+  "h+='<div class=\"titan-orf-opt-secondary\">';",
+  "h+='<span class=\"titan-orf-opt-bio\" style=\"background:'+col+'22;color:#111;border:1px solid '+col+'66;\">'+escape(bio)+'</span>';",
+  "if(codon)h+='<span class=\"titan-orf-opt-codon\">· '+escape(codon)+'</span>';",
+  "h+='</div>';",
+  "h+='<div class=\"titan-orf-opt-meta\">'+escape(item.value)+'</div>';",
+  "h+='</div>';",
+  "return h;},",
+  "item:function(item,escape){",
+  "var d=(window._titanOrfCache||{})[item.value];",
+  "var lenpart='',bio='';",
+  "if(d){lenpart=d.len;bio=d.bio;}",
+  "else{",
+  .orf_bio_col_js, .orf_parse_js,
+  "lenpart=t1.replace(/\\s.\\s.*$/,'');",
+  "}",
+  "var h='<span class=\"titan-orf-item-primary\">'+escape(lenpart)+'</span>';",
+  "if(bio)h+=' <span class=\"titan-orf-item-biotype\">'+escape(bio)+'</span>';",
+  "return h;}",
+  "}"
+), collapse = "\n"))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # UI HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Expression modal — shared by cross-reactivity and BLAST row-click handlers.
+# aln_text: NULL or character string of blastp -outfmt 0 output for BLAST hits.
+expr_modal <- function(gene_sym, gid, aln_text = NULL) {
+  # Header: gene name (H1, petrol) + Ensembl ID (mono, muted)
+  modal_header <- div(
+    class = "d-flex align-items-start justify-content-between mb-3",
+    div(
+      tags$h4(class = "mb-0 fw-bold", style = "color:var(--clr-primary); font-size:1.35rem;",
+              gene_sym),
+      tags$p(class = "mb-0 text-muted small",
+             style = "font-family:'IBM Plex Mono',monospace; font-size:11px;",
+             gid)
+    ),
+    tags$button(
+      type = "button", class = "btn btn-sm btn-outline-primary",
+      `data-bs-dismiss` = "modal", title = "Close",
+      icon("xmark")
+    )
+  )
+
+  # Pairwise alignment card (BLAST only)
+  aln_card <- if (!is.null(aln_text) && nzchar(aln_text %||% ""))
+    card(
+      fill = FALSE, class = "mb-3",
+      card_header(class = "fw-semibold py-2",
+                  tags$span(icon("align-left"), " Pairwise alignment")),
+      card_body(
+        class = "p-2",
+        tags$pre(
+          style = paste0(
+            "max-height:280px; overflow-y:auto; overflow-x:auto;",
+            "font-family:'IBM Plex Mono',monospace; font-size:11px;",
+            "background:var(--clr-bg-card); border:1px solid var(--clr-border);",
+            "border-radius:4px; padding:.65rem .9rem;",
+            "white-space:pre; margin:0; line-height:1.45; color:#2C3E50;"
+          ),
+          aln_text
+        )
+      )
+    )
+
+  # Expression card
+  expr_card <- card(
+    fill = FALSE,
+    card_header(class = "fw-semibold py-2",
+                tags$span(icon("chart-area"), " Expression")),
+    card_body(
+      radioButtons("modal_expr_scale", "Y axis:",
+                   choices = c("log(TPM+1)" = "log", "Raw TPM" = "raw"),
+                   selected = "log", inline = TRUE),
+      plotlyOutput("modal_expr_plot", height = "260px")
+    )
+  )
+
+  modalDialog(
+    title = NULL, footer = NULL, easyClose = TRUE, size = "xl",
+    div(class = "p-3",
+      modal_header,
+      aln_card,
+      expr_card
+    )
+  )
+}
 
 filtering_sidebar_ui <- function() {
   card(
@@ -323,19 +471,40 @@ ui <- page_navbar(
       )
     ),
 
-    # ORF selector: ORF Detail
+    # ORF selector: ORF Detail — two-step cascading gene → ORF
     conditionalPanel(
       condition = "input.main_nav === 'ORF Detail'",
       card(
         card_header(tags$span(icon("search"), " Select ORF"), class = "fw-semibold"),
         card_body(
           class = "px-2 pt-2 pb-1",
-          selectizeInput("detail_orf_id", NULL, choices = NULL,
+
+          # Step 1: gene
+          tags$span(class = "titan-selector-label", "Gene"),
+          selectizeInput("detail_gene_id", NULL, choices = NULL,
                          options = list(
-                           placeholder    = "Type gene, biotype, or position…",
-                           maxOptions     = 30,
+                           placeholder    = "Type gene name…",
+                           maxOptions     = 2000,
                            dropdownParent = "body"
                          )),
+
+          # Step 2: ORF — only shown when gene has >1 ORF
+          conditionalPanel(
+            condition = "output.detail_multi_orf",
+            div(class = "mt-2",
+              tags$span(class = "titan-selector-label", "ORF"),
+              selectizeInput("detail_orf_id", NULL, choices = NULL,
+                             options = list(
+                               placeholder    = "Select ORF…",
+                               maxOptions     = 50,
+                               dropdownParent = "body",
+                               render         = ORF_SELECTIZE_RENDER_JS,
+                               searchField    = c("label", "value")
+                             ))
+            )
+          ),
+
+          uiOutput("detail_orf_counter"),
           uiOutput("detail_orf_meta")
         )
       )
@@ -377,23 +546,7 @@ ui <- page_navbar(
             tags$span(icon("vials"), " MS peptides"),
             uiOutput("ms_status_badge", inline = TRUE)
           ),
-          card_body(
-            div(class = "d-flex align-items-end gap-2",
-              div(class = "flex-grow-1",
-                fileInput("ms_file", "Upload MS results file",
-                          accept = c(".csv", ".tsv", ".txt"),
-                          buttonLabel = "Browse…",
-                          placeholder = "peptides.csv / .tsv")
-              ),
-              div(class = "mb-3", uiOutput("clear_ms_btn"))
-            ),
-            div(class = "d-flex align-items-center gap-2 mb-3",
-                tags$span(class = "text-muted small", "- or —"),
-                actionButton("load_demo_ms", "Load demo peptides",
-                             icon = icon("flask"), class = "btn-sm btn-outline-primary")),
-            uiOutput("ms_load_status"),
-            uiOutput("col_selector")
-          )
+          card_body(uiOutput("ms_panel_ui"))
         )
       ),
 
@@ -450,7 +603,7 @@ ui <- page_navbar(
       div(class = "d-flex flex-column align-items-center justify-content-center mt-5 text-muted",
           icon("upload", class = "fa-3x mb-3"),
           tags$h5("No peptides loaded"),
-          tags$p("Go to the Data tab to upload MS results or load the demo peptides."))
+          tags$p("Go to the Data tab and load a study or upload an MS results file."))
     ),
 
     conditionalPanel(
@@ -512,45 +665,65 @@ ui <- page_navbar(
 
     conditionalPanel(
       condition = "output.has_started == true",
+      div(style = "height: 100%; overflow-y: auto; padding-bottom: 1rem;",
 
-      layout_columns(
-        col_widths = c(6, 6),
-        card(
-          card_header("Protein sequence & peptide matches"),
-          card_body(class = "p-2", uiOutput("detail_protein_seq_ui"))
+        # Placeholder when no gene is selected yet
+        conditionalPanel(
+          condition = "!input.detail_gene_id || input.detail_gene_id === ''",
+          div(class = "d-flex flex-column align-items-center justify-content-center text-muted",
+              style = "height: 60vh;",
+              icon("arrow-left", class = "fa-2x mb-3"),
+              tags$p("Select a gene to begin."))
         ),
-        card(
-          card_header(
-            class = "d-flex align-items-center justify-content-between",
-            tags$span(icon("shield-halved"), " Cross-reactivity"),
-            tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep")
+
+        conditionalPanel(
+          condition = "input.detail_gene_id && input.detail_gene_id !== ''",
+
+        layout_columns(
+          col_widths = c(6, 6),
+          fill       = FALSE,
+
+          # ── Left: protein seq (top) + cross-reactivity (bottom) ──────────────
+          div(
+            card(
+              fill = FALSE, height = "45vh",
+              card_header("Protein sequence & peptide matches"),
+              card_body(class = "p-2", style = "overflow-y: auto;", uiOutput("detail_protein_seq_ui"))
+            ),
+            card(
+              class = "mt-2", fill = FALSE, height = "40vh",
+              card_header(
+                class = "d-flex align-items-center justify-content-between",
+                tags$span(icon("shield-halved"), " Cross-reactivity"),
+                tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep")
+              ),
+              card_body(
+                class = "p-2", style = "overflow-y: auto;",
+                uiOutput("xreact_status_ui"),
+                DTOutput("xreact_hits_dt")
+              )
+            )
           ),
-          card_body(
-            class = "p-2",
-            tags$strong(class = "small text-secondary d-block mb-1", "Canonical self-proteins"),
-            uiOutput("xreact_status_ui"),
-            DTOutput("xreact_hits_dt"),
-            tags$hr(class = "my-2"),
-            tags$strong(class = "small text-secondary d-block mb-1", "Allergens (non-self)"),
-            uiOutput("allergen_status_ui"),
-            DTOutput("allergen_hits_dt")
+
+          # ── Right: BLAST (full height) ────────────────────────────────────────
+          card(
+            fill = FALSE, height = "87vh",
+            card_header(
+              class = "d-flex align-items-center justify-content-between",
+              tags$span(icon("dna"), " BLAST homology"),
+              tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep · ≥50% id, ≥30% cov")
+            ),
+            card_body(
+              class = "p-2", style = "overflow-y: auto;",
+              uiOutput("blast_status_ui"),
+              DTOutput("blast_hits_dt")
+            )
           )
         )
-      ),
 
-      card(
-        class = "mt-2",
-        card_header(
-          class = "d-flex align-items-center justify-content-between",
-          tags$span(icon("dna"), " BLAST homology"),
-          tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep · ≥50% id, ≥30% cov")
-        ),
-        card_body(
-          class = "p-2",
-          uiOutput("blast_status_ui"),
-          DTOutput("blast_hits_dt")
-        )
-      )
+        )  # end gene-selected conditionalPanel
+
+      )  # end scrollable div
     )
   ),
 
@@ -610,14 +783,12 @@ ui <- page_navbar(
           tags$li(tags$b(m$label), " - ", m$hint, tags$span(class="text-muted small ms-1", paste0("(", m$group, ")")))
         })),
         tags$hr(),
-        tags$h6("ORF Detail — safety checks"),
+        tags$h6("ORF Detail (safety checks)"),
         tags$ul(
           tags$li(tags$b("Canonical cross-reactivity (Biostrings):"),
-                  " exact and 1-mismatch peptide matching against the Ensembl 114 proteome",
+                  " exact, 1-mismatch, and 2-mismatch peptide matching against the Ensembl 114 proteome",
                   " (~60–80 K deduplicated sequences, all annotated isoforms); results collapsed",
                   " to gene level (ENSG) with isoform count."),
-          tags$li(tags$b("Allergen cross-reactivity (Biostrings):"),
-                  " same matching strategy against UniProt KW-0020 reviewed allergen proteins."),
           tags$li(tags$b("BLAST homology (blastp):"),
                   " full-protein search against the Ensembl 114 deduplicated proteome;",
                   " hits filtered to ≥ 50 % identity AND ≥ 30 % alignment coverage;",
@@ -626,9 +797,7 @@ ui <- page_navbar(
         tags$p(class = "text-muted small mb-0",
                "Reference databases are built once via ",
                tags$code("app/scripts/01_prep_ensembl_pep.sbatch"),
-               ", ",
-               tags$code("02_prep_allergen.sbatch"),
-               ", and ",
+               " and ",
                tags$code("03_prep_annotation.sbatch"),
                ". All checks run offline at app runtime — no internet access required."),
         tags$hr(),
@@ -650,13 +819,16 @@ server <- function(input, output, session) {
 
   # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
   # Per-orf session caches; all keyed by orf_id.
-  xreact_cache_rv   <- reactiveVal(list())
-  allergen_cache_rv <- reactiveVal(list())
-  blast_cache_rv    <- reactiveVal(list())
-  modal_gene_rv     <- reactiveVal(NULL)   # list(gid=ENSG, sym=gene_symbol)
+  xreact_cache_rv <- reactiveVal(list())
+  blast_cache_rv  <- reactiveVal(list())
+  modal_gene_rv   <- reactiveVal(NULL)   # list(gid=ENSG, sym=gene_symbol)
+  blast_aln_rv    <- reactiveVal(NULL)   # pairwise alignment text for current modal
+
+  # Pending ORF from Prioritisation row-click (applied after gene cascade resolves)
+  pending_orf_rv  <- reactiveVal(NULL)
 
   # BLAST fires 750 ms after the user stops changing candidates.
-  # xreact + allergen observe input$detail_orf_id directly (fast, no debounce needed).
+  # xreact observes input$detail_orf_id directly (fast, no debounce needed).
   detail_orf_id_debounced <- debounce(reactive(input$detail_orf_id), 750)
 
   orf_table_rv <- reactive({
@@ -692,37 +864,134 @@ server <- function(input, output, session) {
     updatePickerInput(session, "biotype_filter", choices = bios, selected = bios)
   }, ignoreInit = TRUE)
 
-  # ORF Detail selector: only matched ORFs that pass Overview + Prioritisation filters
+  # ── Auto-load bundled MS peptides ────────────────────────────────────────────
+  # When a study loads, check for data/<study_id>/peptides_<study_id>.csv and
+  # silently populate user_ms_rv so the user doesn't need to upload manually.
+  # The file can be removed at any time via the Clear button.
+  observeEvent(app_data_rv(), {
+    sid <- app_data_rv()$study_id
+    if (is.null(sid) || !nzchar(sid)) return()
+    base   <- file.path("data", sid, paste0("peptides_", sid))
+    pep_path <- Find(file.exists, paste0(base, c(".csv", ".tsv", ".txt")))
+    if (is.null(pep_path)) return()
+    dat <- tryCatch({
+      first_line <- readLines(pep_path, n = 1L, warn = FALSE, encoding = "UTF-8")
+      first_line <- sub("^\xef\xbb\xbf", "", first_line)  # strip UTF-8 BOM if present
+      n_tabs   <- nchar(first_line) - nchar(gsub("\t", "", first_line, fixed = TRUE))
+      n_commas <- nchar(first_line) - nchar(gsub(",",  "", first_line, fixed = TRUE))
+      sep <- if (n_tabs >= n_commas) "\t" else ","
+      read.delim(pep_path, sep = sep, stringsAsFactors = FALSE,
+                 check.names = FALSE, fileEncoding = "UTF-8-BOM")
+    }, error = function(e) {
+      showNotification(paste0("Auto-load of bundled peptides failed: ", e$message),
+                       type = "warning", duration = 8)
+      NULL
+    })
+    if (is.null(dat) || nrow(dat) == 0L) return()
+    user_ms_rv(dat)
+    ms_upload_info_rv(list(name = basename(pep_path), timestamp = Sys.time(), source = "auto"))
+    showNotification(
+      tagList(icon("vials"), sprintf(" Loaded bundled peptides for %s (%s rows)",
+                                    sid, formatC(nrow(dat), big.mark = ","))),
+      type = "message", duration = 5
+    )
+  }, ignoreInit = TRUE)
+
+  # ── ORF Detail: gene dropdown — populated from filtered candidate set ─────────
+  # Shared helper: build the filtered ORF table (same logic for gene list and ORF list).
+  detail_orf_tbl <- reactive({
+    md <- safe_matched_data()
+    if (is.null(md) || nrow(md) == 0L) return(NULL)
+    ppd <- tryCatch(prio_table_df(), error = function(e) NULL)
+    matched_ids <- if (!is.null(ppd) && nrow(ppd) > 0L)
+      unique(trimws(unlist(strsplit(ppd$orf_ids, ",\\s*", perl = TRUE))))
+    else unique(md$orf_id)
+    tbl <- orf_table_rv()[orf_table_rv()$orf_id %in% matched_ids, ]
+    if (nrow(tbl) == 0L) NULL else tbl
+  })
+
   observeEvent({
     safe_matched_data()
     input$prio_spec_filter
     input$prio_risk_filter
   }, {
-    md <- safe_matched_data()
-    if (is.null(md) || nrow(md) == 0L) {
-      # server = FALSE for empty choices - server = TRUE with character(0) sends a
-      # malformed AJAX response that triggers "Cannot read properties of undefined"
-      updateSelectizeInput(session, "detail_orf_id", choices = character(0), server = FALSE)
+    tbl <- tryCatch(detail_orf_tbl(), error = function(e) NULL)
+    if (is.null(tbl)) {
+      updateSelectizeInput(session, "detail_gene_id", choices = character(0), server = FALSE)
+      updateSelectizeInput(session, "detail_orf_id",  choices = character(0), server = FALSE)
       return()
     }
-    # Use spec-filtered priority table to restrict choices.
-    # orf_ids holds all ORF IDs per group (best + co-identified child ORFs).
-    ppd <- tryCatch(prio_table_df(), error = function(e) NULL)
-    matched_ids <- if (!is.null(ppd) && nrow(ppd) > 0L) {
-      unique(trimws(unlist(strsplit(ppd$orf_ids, ",\\s*", perl = TRUE))))
-    } else {
-      unique(md$orf_id)
-    }
-    tbl <- orf_table_rv()[orf_table_rv()$orf_id %in% matched_ids, ]
-    if (nrow(tbl) == 0L) {
-      updateSelectizeInput(session, "detail_orf_id", choices = character(0), server = FALSE)
-      return()
-    }
-    choices <- setNames(tbl$orf_id, orf_id_labels(tbl))
-    top_oid <- if (!is.null(ppd) && nrow(ppd) > 0L) ppd$.orf_id[1L] else choices[[1L]]
-    updateSelectizeInput(session, "detail_orf_id",
-      choices = choices, selected = top_oid, server = TRUE)
+    genes <- unique(tbl$gene_name)
+    genes <- sort(genes[!is.na(genes) & nzchar(genes)])
+    ppd   <- tryCatch(prio_table_df(), error = function(e) NULL)
+    top_gene <- if (!is.null(ppd) && nrow(ppd) > 0L) {
+      top_row <- tbl[tbl$orf_id == ppd$.orf_id[1L], ]
+      if (nrow(top_row) > 0L) top_row$gene_name[1L] else genes[1L]
+    } else genes[1L]
+    updateSelectizeInput(session, "detail_gene_id",
+      choices = genes, selected = top_gene, server = FALSE)
   }, ignoreNULL = FALSE, ignoreInit = FALSE)
+
+  # ── ORF Detail: ORF dropdown — cascade from selected gene ────────────────────
+  observeEvent(input$detail_gene_id, {
+    req(nzchar(input$detail_gene_id %||% ""))
+    tbl <- tryCatch(detail_orf_tbl(), error = function(e) NULL)
+    if (is.null(tbl)) return()
+    gene_tbl <- tbl[tbl$gene_name == input$detail_gene_id, , drop = FALSE]
+    if (nrow(gene_tbl) == 0L) return()
+
+    # Clear current ORF first to prevent stale value from persisting even briefly
+    updateSelectizeInput(session, "detail_orf_id", choices = character(0), server = FALSE)
+
+    ppd     <- tryCatch(prio_table_df(), error = function(e) NULL)
+    pending <- pending_orf_rv()
+
+    top_oid <- if (!is.null(pending) && pending %in% gene_tbl$orf_id) {
+      pending_orf_rv(NULL)
+      pending
+    } else if (!is.null(ppd) && nrow(ppd) > 0L) {
+      # Find the highest-ranked prioritised ORF that belongs to this gene
+      candidate <- ppd$.orf_id[ppd$.orf_id %in% gene_tbl$orf_id]
+      if (length(candidate)) candidate[1L] else gene_tbl$orf_id[1L]
+    } else gene_tbl$orf_id[1L]
+
+    if (nrow(gene_tbl) == 1L) {
+      # Single-ORF gene: auto-select, no dropdown shown
+      updateSelectizeInput(session, "detail_orf_id",
+        choices = setNames(gene_tbl$orf_id, orf_option_labels(gene_tbl)),
+        selected = gene_tbl$orf_id[1L], server = FALSE)
+    } else {
+      choices <- setNames(gene_tbl$orf_id, orf_option_labels(gene_tbl))
+      updateSelectizeInput(session, "detail_orf_id",
+        choices = choices, selected = top_oid, server = FALSE)
+    }
+  }, ignoreNULL = TRUE, ignoreInit = FALSE)
+
+  # Boolean output driving the conditional ORF dropdown visibility
+  output$detail_multi_orf <- reactive({
+    gene <- input$detail_gene_id %||% ""
+    if (!nzchar(gene)) return(FALSE)
+    tbl <- tryCatch(detail_orf_tbl(), error = function(e) NULL)
+    if (is.null(tbl)) return(FALSE)
+    sum(tbl$gene_name == gene, na.rm = TRUE) > 1L
+  })
+  outputOptions(output, "detail_multi_orf", suspendWhenHidden = FALSE)
+
+  # ORF position counter (7b): "ORF N of M for GENE"
+  output$detail_orf_counter <- renderUI({
+    gene <- input$detail_gene_id %||% ""
+    oid  <- input$detail_orf_id  %||% ""
+    if (!nzchar(gene) || !nzchar(oid)) return(NULL)
+    tbl <- tryCatch(detail_orf_tbl(), error = function(e) NULL)
+    if (is.null(tbl)) return(NULL)
+    gene_tbl <- tbl[tbl$gene_name == gene, , drop = FALSE]
+    n_total  <- nrow(gene_tbl)
+    if (n_total <= 1L) return(NULL)
+    idx <- which(gene_tbl$orf_id == oid)
+    if (!length(idx)) return(NULL)
+    tags$p(class = "text-muted small mt-1 mb-0",
+           sprintf("ORF %d of %d for %s", idx[1L], n_total, gene))
+  })
 
   # ── Data tab: study library ──────────────────────────────────────────────────
 
@@ -760,12 +1029,13 @@ server <- function(input, output, session) {
               tags$b(class = "d-block", s$display_name),
               div(class = "d-flex gap-2 mt-1 flex-wrap align-items-center",
                 if (!is.na(s$n_orfs))
-                  tags$span(class = "badge bg-primary",
+                  tags$span(class = "badge rounded-pill text-bg-light border",
                             paste0(formatC(s$n_orfs, big.mark = ",", format = "d"), " ORFs")),
                 if (!is.na(s$n_ribo_samples))
-                  tags$span(class = "badge bg-secondary",
-                            paste0(s$n_ribo_samples, " samples")),
-                tags$span(class = "badge rounded-pill text-bg-light border", s$cancer_type),
+                  tags$span(class = "badge rounded-pill text-bg-light border",
+                            paste0(s$n_ribo_samples, " ribo / ", s$n_rna_samples, " RNA")),
+                if (!is.na(s$cancer_type))
+                  tags$span(class = "badge rounded-pill text-bg-light border", s$cancer_type),
                 if (!is.na(s$prepared_on))
                   tags$small(class = "text-muted", s$prepared_on)
               )
@@ -815,7 +1085,9 @@ server <- function(input, output, session) {
       ),
       if (!show_upload) {
         div(
-          textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%"),
+          div(class = "mb-2",
+            textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
+          ),
           div(class = "d-flex gap-2 mb-2",
             selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
             selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
@@ -892,23 +1164,57 @@ server <- function(input, output, session) {
     show_upload_rv(TRUE)
   }, ignoreInit = TRUE)
 
-  output$ms_load_status <- renderUI({
-    ms <- tryCatch(ms_data(), error = function(e) NULL)
-    if (is.null(ms)) return(NULL)
-    n_pep   <- nrow(ms)
-    is_demo <- is.null(user_ms_rv())
-    div(class = "d-flex align-items-center gap-2 mb-2",
-        tags$span(class = "badge bg-secondary",
-                  paste0(formatC(n_pep, big.mark = ","), " peptides")),
-        if (is_demo) tags$span(class = "badge bg-info", "demo"))
-  })
+  output$ms_panel_ui <- renderUI({
+    ms   <- tryCatch(ms_data(), error = function(e) NULL)
+    info <- ms_upload_info_rv()
 
-  output$clear_ms_btn <- renderUI({
-    ms <- tryCatch(ms_data(), error = function(e) NULL)
-    if (is.null(ms)) return(NULL)
-    actionButton("clear_ms", "Clear", icon = icon("trash"),
-                 class = "btn-sm btn-outline-danger",
-                 title = "Clear MS data")
+    if (is.null(ms)) {
+      # ── Upload form ────────────────────────────────────────────────────────
+      fileInput("ms_file", "Upload MS results file",
+                accept      = c(".csv", ".tsv", ".txt"),
+                buttonLabel = "Browse…",
+                placeholder = "peptides.csv / .tsv")
+    } else {
+      # ── Loaded state — mirrors ORF candidates active-card pattern ──────────
+      pep_col_auto <- tryCatch(auto_pep_col(), error = function(e) NULL)
+      n_uniq <- if (!is.null(pep_col_auto) && pep_col_auto %in% colnames(ms))
+        length(unique(trimws(ms[[pep_col_auto]])))
+      else nrow(ms)
+      n_rows <- nrow(ms)
+
+      label <- if (!is.null(info)) {
+        if (identical(info$source, "auto"))
+          paste0("Bundled — ", info$name)
+        else
+          info$name
+      } else "Uploaded file"
+
+      ts_str <- if (!is.null(info)) format(info$timestamp, "%Y-%m-%d %H:%M") else NULL
+
+      tagList(
+        div(class = "titan-study-active",
+          div(class = "d-flex justify-content-between align-items-start",
+            div(
+              tags$p(class = "mb-1 fw-semibold",
+                     icon("file-lines"), " ", label),
+              div(class = "d-flex gap-2 mt-1 flex-wrap align-items-center",
+                tags$span(class = "badge rounded-pill text-bg-light border",
+                          paste0(formatC(n_uniq, big.mark = ","), " peptides")),
+                if (n_rows != n_uniq)
+                  tags$span(class = "badge rounded-pill text-bg-light border",
+                            paste0(formatC(n_rows, big.mark = ","), " rows")),
+                if (!is.null(ts_str))
+                  tags$small(class = "text-muted", ts_str)
+              )
+            ),
+            actionButton("clear_ms", NULL, icon = icon("trash"),
+                         class = "btn-sm btn-outline-danger flex-shrink-0",
+                         title = "Clear MS data")
+          )
+        ),
+        uiOutput("col_selector")
+      )
+    }
   })
 
   output$orf_status_badge <- renderUI({
@@ -931,13 +1237,20 @@ server <- function(input, output, session) {
     all_matches_rv(NULL)
     started_rv(FALSE)
     show_upload_rv(FALSE)
+    # Clear MS data only if it was auto-loaded with this study (not a manual upload)
+    if (identical(ms_upload_info_rv()$source, "auto")) {
+      user_ms_rv(NULL)
+      ms_upload_info_rv(NULL)
+    }
+    xreact_cache_rv(list()); blast_cache_rv(list())
   })
 
   observeEvent(input$clear_ms, {
     user_ms_rv(NULL)
-    demo_ms_rv(NULL)
+    ms_upload_info_rv(NULL)
     all_matches_rv(NULL)
     started_rv(FALSE)
+    xreact_cache_rv(list()); blast_cache_rv(list())
   })
 
   started_rv    <- reactiveVal(FALSE)
@@ -1030,10 +1343,21 @@ server <- function(input, output, session) {
 
   output$start_section_ui <- renderUI({
     rds_ok <- !is.null(app_data_rv())
-    ms_ok  <- !is.null(user_ms_rv()) || !is.null(demo_ms_rv())
+    ms_ok  <- !is.null(user_ms_rv())
     if (rds_ok && ms_ok && !started_rv()) {
+      # Build a compact readiness summary so the user can confirm scope before clicking
+      n_orfs_str <- formatC(nrow(app_data_rv()$orf_table), big.mark = ",", format = "d")
+      ms_raw     <- tryCatch(ms_data(), error = function(e) NULL)
+      pep_col_a  <- tryCatch(auto_pep_col(), error = function(e) NULL)
+      n_peps_str <- if (!is.null(ms_raw) && !is.null(pep_col_a) && pep_col_a %in% colnames(ms_raw))
+        formatC(length(unique(trimws(ms_raw[[pep_col_a]]))), big.mark = ",", format = "d")
+      else if (!is.null(ms_raw))
+        formatC(nrow(ms_raw), big.mark = ",", format = "d")
+      else "?"
       div(
         class = "mt-4 text-center",
+        tags$p(class = "text-muted small mb-2",
+               paste0(n_orfs_str, " ORFs × ", n_peps_str, " peptides ready to match")),
         actionButton("start_titan", "EXPLORE TARGETS",
                      icon  = icon("play-circle"),
                      class = "btn-lg btn-primary btn-titan-ready px-5 py-2 fw-bold")
@@ -1066,15 +1390,8 @@ server <- function(input, output, session) {
   })
 
   # ── MS peptides ─────────────────────────────────────────────────────────────
-  demo_ms_rv <- reactiveVal(NULL)
-  user_ms_rv <- reactiveVal(NULL)
-
-  observeEvent(input$load_demo_ms, {
-    withProgress(message = "Loading demo peptides…", value = 0.5, {
-      demo_ms_rv(read.delim("data/demo_ms_peptides.tsv", sep = "\t",
-                            stringsAsFactors = FALSE, check.names = FALSE))
-    })
-  })
+  user_ms_rv        <- reactiveVal(NULL)
+  ms_upload_info_rv <- reactiveVal(NULL)   # list(name, timestamp, source)
 
   observeEvent(input$ms_file, {
     req(input$ms_file)
@@ -1092,13 +1409,15 @@ server <- function(input, output, session) {
         NULL
       }
     )
-    if (!is.null(dat)) user_ms_rv(dat)
+    if (!is.null(dat)) {
+      user_ms_rv(dat)
+      ms_upload_info_rv(list(name = input$ms_file$name, timestamp = Sys.time(), source = "upload"))
+    }
   })
 
   ms_data <- reactive({
-    if (!is.null(user_ms_rv())) return(user_ms_rv())
-    req(demo_ms_rv())
-    demo_ms_rv()
+    req(user_ms_rv())
+    user_ms_rv()
   })
 
   PEPTIDE_COL_CANDIDATES <- c("Peptide", "Sequence", "peptide", "sequence",
@@ -1111,8 +1430,12 @@ server <- function(input, output, session) {
 
   output$col_selector <- renderUI({
     req(ms_data())
-    selectInput("pep_col", "Peptide sequence column",
-                choices = colnames(ms_data()), selected = auto_pep_col())
+    div(class = "mt-2",
+      selectInput("pep_col", "Peptide sequence column",
+                  choices = colnames(ms_data()), selected = auto_pep_col()),
+      tags$p(class = "text-muted small mt-n2 mb-0",
+             "Which column contains the amino acid sequences. Auto-detected from common column names.")
+    )
   })
 
   ms_peptides <- reactive({
@@ -1152,7 +1475,7 @@ server <- function(input, output, session) {
   })
 
   output$has_peptides <- reactive({
-    !is.null(user_ms_rv()) || !is.null(demo_ms_rv())
+    !is.null(user_ms_rv())
   })
   outputOptions(output, "has_peptides", suspendWhenHidden = FALSE)
 
@@ -1726,11 +2049,14 @@ server <- function(input, output, session) {
   observeEvent(input$prio_gene_click, {
     rid <- as.integer(input$prio_gene_click$rowid)
     prio_row_id(rid)
-    # Also pre-populate the ORF Detail tab with the best ORF for this gene
+    # Pre-populate ORF Detail: set gene (cascade sets ORF), but stash specific orf_id
+    # so the gene observer selects it instead of defaulting to the top prioritised ORF.
     gdata <- isolate(gene_prioritised_data())
     row   <- filter(gdata, .row_id == rid)
-    if (nrow(row) > 0)
-      updateSelectizeInput(session, "detail_orf_id", selected = row$orf_id[1])
+    if (nrow(row) > 0) {
+      pending_orf_rv(row$orf_id[1])
+      updateSelectizeInput(session, "detail_gene_id", selected = row$gene_name[1])
+    }
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   observeEvent(input$prio_selected_rowids, {
@@ -2448,33 +2774,94 @@ server <- function(input, output, session) {
     siblings <- detail_orf_siblings()
     tbl      <- orf_table_rv()
 
-    main_block <- tags$div(
-      tags$p(tags$b("Gene: "), o$gene_name, "  ",
-             tags$span(class = "badge bg-secondary", o$gene_biotype)),
-      tags$p(tags$b("Biotype: "), HTML(biotype_badge_html(o$orf_biotype_single))),
-      tags$p(tags$b("Coordinates: "),
-             paste0(o$chr, ":", format(o$orf_start, big.mark = ","), "–",
-                    format(o$orf_end, big.mark = ","), " (", o$strand, ")")),
-      tags$p(tags$b("Protein length: "), o$protein_length, " aa"),
-      tags$p(tags$b("Start codon: "), o$start_codon),
-      tags$small(class = "text-muted font-monospace",
-                 style = "word-break:break-all;", o$orf_id)
+    # External links (7a)
+    ensg_clean  <- o$gene_id_clean %||% ""
+    ensembl_url <- if (nzchar(ensg_clean))
+      paste0("https://www.ensembl.org/Homo_sapiens/Gene/Summary?db=core;g=", ensg_clean)
+    else NULL
+    ucsc_url <- paste0(
+      "https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr",
+      o$chr, "%3A", o$orf_start, "-", o$orf_end
+    )
+    coord_str <- paste0(
+      o$chr, ":", format(o$orf_start, big.mark = ",", scientific = FALSE, trim = TRUE),
+      "–", format(o$orf_end,   big.mark = ",", scientific = FALSE, trim = TRUE),
+      " (", o$strand, ")"
     )
 
-    # Gencode cross-match annotation (case a: in-house ORF also matched a Gencode entry)
-    md <- tryCatch(matched_data(), error = function(e) NULL)
-    gc_ids <- if (!is.null(md) && "gencode_match_ids" %in% colnames(md)) {
-      vals <- unique(md$gencode_match_ids[md$orf_id == o$orf_id])
-      vals <- vals[!is.na(vals) & nzchar(vals)]
-      if (length(vals)) paste(vals, collapse = "; ") else ""
-    } else ""
-    gc_block <- if (nzchar(gc_ids))
-      tags$p(tags$b("Gencode cross-match: "),
-             tags$small(class = "text-muted font-monospace", gc_ids))
-    else NULL
+    main_block <- tags$div(
+      # Point 3: "Gene type:" with distinct muted badge
+      tags$p(class = "mb-1",
+        tags$b("Gene type:"), " ",
+        if (!is.null(ensembl_url))
+          tags$a(href = ensembl_url, target = "_blank", rel = "noopener",
+                 style = "color:var(--clr-primary);", o$gene_name)
+        else o$gene_name,
+        " ",
+        tags$span(class = "titan-badge-gene-type", o$gene_biotype)
+      ),
+      # Point 3: "ORF biotype:" keeps the coloured biotype badge
+      tags$p(class = "mb-1", tags$b("ORF biotype:"), " ",
+             HTML(biotype_badge_html(o$orf_biotype_single))),
+      # Point 6 + 7a: Coordinates with UCSC link and copy button
+      tags$p(class = "mb-1",
+        tags$b("Coordinates:"), " ",
+        tags$a(href = ucsc_url, target = "_blank", rel = "noopener",
+               style = "color:var(--clr-primary);", coord_str),
+        " ", copy_btn(coord_str)
+      ),
+      tags$p(class = "mb-1", tags$b("Protein length:"), " ", o$protein_length, " aa"),
+      tags$p(class = "mb-1", tags$b("Start codon:"), " ", o$start_codon),
+      # Point 4: labelled ORF ID with copy button
+      tags$p(class = "mb-1",
+        tags$b("ORF ID:"), " ",
+        copy_btn(o$orf_id),
+        tags$br(),
+        tags$small(class = "text-muted font-monospace",
+                   style = "word-break:break-all; font-size:10px;", o$orf_id)
+      )
+    )
 
-    sib_section <- NULL
-    if (length(siblings) > 0L) {
+    # Point 5: Gencode cross-match as cards (supports 0, 1, or many matches)
+    md <- tryCatch(matched_data(), error = function(e) NULL)
+    gc_ids_raw <- if (!is.null(md) && "gencode_match_ids" %in% colnames(md)) {
+      vals <- unique(md$gencode_match_ids[md$orf_id == o$orf_id])
+      vals[!is.na(vals) & nzchar(vals)]
+    } else character(0)
+
+    gc_section <- if (length(gc_ids_raw) > 0L) {
+      # Each entry in gc_ids_raw may itself be "; "-separated (one per peptide row)
+      all_entries <- unique(trimws(unlist(strsplit(paste(gc_ids_raw, collapse = "; "), "; ", fixed = TRUE))))
+      all_entries <- all_entries[nzchar(all_entries)]
+
+      gc_rows <- lapply(all_entries, function(entry) {
+        # Parse "orf_id (gene_name, biotype)"
+        m <- regmatches(entry, regexec("^(.+) \\(([^,]+), ([^)]+)\\)$", entry, perl = TRUE))[[1]]
+        if (length(m) == 4L) {
+          gc_oid  <- m[2L]; gc_gene <- m[3L]; gc_bio <- m[4L]
+        } else {
+          gc_oid  <- entry; gc_gene <- ""; gc_bio <- "unknown"
+        }
+        tags$div(class = "d-flex align-items-start gap-2 mb-1",
+          HTML(biotype_badge_html(gc_bio)),
+          div(
+            if (nzchar(gc_gene))
+              tags$small(class = "fw-semibold d-block", gc_gene),
+            tags$small(class = "text-muted font-monospace", style = "font-size:10px;",
+                       gc_oid, " ", copy_btn(gc_oid))
+          )
+        )
+      })
+      tagList(
+        tags$hr(class = "my-2"),
+        tags$p(class = "text-muted small mb-1",
+               sprintf("%d Gencode cross-match%s:",
+                       length(all_entries), if (length(all_entries) > 1L) "es" else "")),
+        tagList(gc_rows)
+      )
+    } else NULL
+
+    sib_section <- if (length(siblings) > 0L) {
       sib_tbl  <- filter(tbl, orf_id %in% siblings)
       sib_rows <- lapply(seq_len(nrow(sib_tbl)), function(i) {
         s <- sib_tbl[i, ]
@@ -2482,12 +2869,14 @@ server <- function(input, output, session) {
           HTML(biotype_badge_html(s$orf_biotype_single)),
           tags$small(class = "text-muted font-monospace",
                      paste0(s$protein_length, " aa · ",
-                            s$chr, ":", format(s$orf_start, big.mark = ","),
-                            "–", format(s$orf_end, big.mark = ","),
+                            s$chr, ":",
+                            format(s$orf_start, big.mark = ",", scientific = FALSE, trim = TRUE),
+                            "–",
+                            format(s$orf_end, big.mark = ",", scientific = FALSE, trim = TRUE),
                             "  ", s$orf_id))
         )
       })
-      sib_section <- tagList(
+      tagList(
         tags$hr(class = "my-2"),
         tags$p(class = "text-muted small mb-1",
                paste0(length(siblings), " co-identified ORF",
@@ -2495,15 +2884,9 @@ server <- function(input, output, session) {
                       " (identical peptide evidence):")),
         tagList(sib_rows)
       )
-    }
+    } else NULL
 
-    if (is.null(gc_block) && is.null(sib_section)) return(main_block)
-
-    tagList(
-      main_block,
-      if (!is.null(gc_block)) tagList(tags$hr(class = "my-2"), gc_block) else NULL,
-      sib_section
-    )
+    tagList(main_block, gc_section, sib_section)
   })
 
   output$detail_protein_seq_ui <- renderUI({
@@ -2562,77 +2945,111 @@ server <- function(input, output, session) {
       } else {
         ref_set <- Biostrings::AAStringSet(ensembl_pep_index$seqs)
         ref_md5 <- names(ensembl_pep_index$seqs)   # md5 hashes as names
+
+        # Render a peptide as HTML, bolding the given (1-based) mismatch positions.
+        pep_html <- function(chars, mm_pos) {
+          paste(ifelse(seq_along(chars) %in% mm_pos,
+                       paste0("<strong>", chars, "</strong>"), chars),
+                collapse = "")
+        }
+
         hits <- do.call(rbind, Filter(Negate(is.null), lapply(peps, function(pep) {
-          pep_aa <- tryCatch(Biostrings::AAString(pep), error = function(e) NULL)
+          pep_aa    <- tryCatch(Biostrings::AAString(pep), error = function(e) NULL)
           if (is.null(pep_aa)) return(NULL)
+          pep_len   <- nchar(pep)
+          pep_chars <- strsplit(pep, "")[[1]]
+
           m0 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 0L, fixed = TRUE),
                          error = function(e) NULL)
           m1 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 1L, fixed = TRUE),
                          error = function(e) NULL)
-          exact_md5 <- if (!is.null(m0)) ref_md5[which(lengths(m0) > 0L)] else character(0)
-          near_md5  <- if (!is.null(m1)) setdiff(ref_md5[which(lengths(m1) > 0L)], exact_md5) else character(0)
-          if (!length(exact_md5) && !length(near_md5)) return(NULL)
-          collapse_to_genes <- function(md5s, mm) {
-            if (!length(md5s)) return(NULL)
-            rows <- do.call(rbind, lapply(md5s, function(md5) {
-              ensg_vec <- ensembl_pep_index$md5_to_ensg[[md5]]
-              sym_vec  <- ensembl_pep_index$md5_to_sym[[md5]]
-              n_ensp   <- length(ensembl_pep_index$md5_to_ensp[[md5]])
-              data.frame(Peptide = pep, Gene_sym = sym_vec %||% "unknown",
-                         ENSG = ensg_vec %||% NA_character_,
-                         Mismatches = mm, N_isoforms = n_ensp,
-                         stringsAsFactors = FALSE)
-            }))
-            rows[!duplicated(rows$ENSG), , drop = FALSE]
+          m2 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 2L, fixed = TRUE),
+                         error = function(e) NULL)
+
+          # Strict per-level indices (parallel to ref_set rows)
+          idx0 <- if (!is.null(m0)) which(lengths(m0) > 0L) else integer(0)
+          idx1 <- if (!is.null(m1)) setdiff(which(lengths(m1) > 0L), idx0) else integer(0)
+          idx2 <- if (!is.null(m2)) setdiff(which(lengths(m2) > 0L), union(idx0, idx1)) else integer(0)
+          if (!length(idx0) && !length(idx1) && !length(idx2)) return(NULL)
+
+          # For each matched sequence index, extract the target subsequence and
+          # build HTML-rendered query/target strings with mismatches bolded.
+          build_rows <- function(seq_idx, views_list, mm) {
+            if (!length(seq_idx)) return(NULL)
+            do.call(rbind, Filter(Negate(is.null), lapply(seq_idx, function(i) {
+              views <- views_list[[i]]
+              if (!length(views)) return(NULL)
+              s <- IRanges::start(views)[1L]
+              tgt <- tryCatch(
+                as.character(Biostrings::subseq(ref_set[[i]], start = s, width = pep_len)),
+                error = function(e) NULL
+              )
+              if (is.null(tgt) || nchar(tgt) != pep_len) return(NULL)
+              tgt_chars   <- strsplit(tgt, "")[[1]]
+              mm_pos      <- which(pep_chars != tgt_chars)
+              query_html  <- pep_html(pep_chars, mm_pos)
+              target_html <- pep_html(tgt_chars, mm_pos)
+              md5         <- ref_md5[i]
+              ensg_vec    <- ensembl_pep_index$md5_to_ensg[[md5]] %||% NA_character_
+              sym_vec     <- ensembl_pep_index$md5_to_sym[[md5]]  %||% "unknown"
+              n_ensp      <- length(ensembl_pep_index$md5_to_ensp[[md5]])
+              # Iterate over ENSGs explicitly to avoid length-mismatch in data.frame()
+              # when md5_to_ensg and md5_to_sym have different lengths.
+              do.call(rbind, lapply(seq_along(ensg_vec), function(j) {
+                ensg_j <- as.character(ensg_vec[[j]])[1L]
+                gene_sym_j <- if (!is.null(ensembl_gene_annot) && !is.na(ensg_j)) {
+                  idx_a <- match(ensg_j, ensembl_gene_annot$ensembl_gene_id)
+                  if (!is.na(idx_a)) ensembl_gene_annot$external_gene_name[idx_a]
+                  else if (length(sym_vec) > 0L) as.character(sym_vec[1L]) else NA_character_
+                } else {
+                  if (length(sym_vec) > 0L) as.character(sym_vec[1L]) else NA_character_
+                }
+                data.frame(
+                  Peptide     = pep,
+                  Query_html  = query_html,
+                  Target_html = target_html,
+                  Gene_sym    = gene_sym_j,
+                  ENSG        = ensg_j,
+                  Mismatches  = mm,
+                  stringsAsFactors = FALSE
+                )
+              }))
+            })))
           }
-          rbind(collapse_to_genes(exact_md5, 0L), collapse_to_genes(near_md5, 1L))
+
+          rbind(build_rows(idx0, m0, 0L),
+                build_rows(idx1, m1, 1L),
+                build_rows(idx2, m2, 2L))
         })))
-        # Final dedup across peptides: keep worst (lowest) Mismatches per gene
+        # Final dedup across peptides: keep best (lowest) Mismatches per gene
         if (!is.null(hits) && nrow(hits) > 0L) {
           hits <- hits[order(hits$ENSG, hits$Mismatches), ]
           hits <- hits[!duplicated(hits$ENSG), ]
+          # Exclude self: drop hits where ENSG or gene name match the query ORF
+          orf_row  <- filter(orf_table_rv(), orf_id == oid)
+          orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
+          orf_name <- if (nrow(orf_row) > 0L) orf_row$gene_name[1L]     else NA_character_
+          if (!is.na(orf_ensg))
+            hits <- hits[is.na(hits$ENSG)     | hits$ENSG     != orf_ensg, , drop = FALSE]
+          if (!is.na(orf_name) && nzchar(orf_name))
+            hits <- hits[is.na(hits$Gene_sym) | hits$Gene_sym != orf_name, , drop = FALSE]
+          # For gene names that resolve to multiple ENSGs, keep only those
+          # present in the tumor quantification matrix.
+          if (nrow(hits) > 0L) {
+            rna_mat    <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
+            gene_n     <- table(hits$Gene_sym)
+            multi_syms <- names(gene_n)[gene_n > 1L]
+            if (length(multi_syms) > 0L && !is.null(rna_mat)) {
+              in_mat    <- hits$ENSG %in% rownames(rna_mat)
+              is_multi  <- hits$Gene_sym %in% multi_syms
+              hits      <- hits[!is_multi | in_mat, , drop = FALSE]
+            }
+          }
         }
         store_xr(if (is.null(hits)) data.frame() else hits)
       }
     }
 
-    # allergen
-    if (is.null(allergen_cache_rv()[[oid]])) {
-      md   <- tryCatch(matched_data(), error = function(e) NULL)
-      peps <- if (!is.null(md)) unique(md$matched_peptide[md$orf_id == oid]) else character(0)
-
-      store_al <- function(result) {
-        cache <- allergen_cache_rv(); cache[[oid]] <- result; allergen_cache_rv(cache)
-      }
-
-      if (length(peps) == 0L) {
-        store_al(data.frame())
-      } else if (is.null(allergen_index) || length(allergen_index$seqs) == 0L) {
-        store_al(data.frame(Error = "Allergen index not loaded — run scripts/02_prep_allergen.sbatch first."))
-      } else {
-        al_set   <- Biostrings::AAStringSet(allergen_index$seqs)
-        al_names <- names(allergen_index$seqs)  # "ENTRY|ACC"
-        al_hits <- do.call(rbind, Filter(Negate(is.null), lapply(peps, function(pep) {
-          pep_aa <- tryCatch(Biostrings::AAString(pep), error = function(e) NULL)
-          if (is.null(pep_aa)) return(NULL)
-          m0 <- tryCatch(Biostrings::vmatchPattern(pep_aa, al_set, max.mismatch = 0L, fixed = TRUE),
-                         error = function(e) NULL)
-          m1 <- tryCatch(Biostrings::vmatchPattern(pep_aa, al_set, max.mismatch = 1L, fixed = TRUE),
-                         error = function(e) NULL)
-          exact_idx <- if (!is.null(m0)) which(lengths(m0) > 0L) else integer(0)
-          near_idx  <- if (!is.null(m1)) setdiff(which(lengths(m1) > 0L), exact_idx) else integer(0)
-          if (!length(exact_idx) && !length(near_idx)) return(NULL)
-          nm <- al_names[c(exact_idx, near_idx)]
-          acc      <- sub(".*\\|", "", nm)
-          gene_sym <- ifelse(acc %in% names(allergen_index$acc_to_sym),
-                             allergen_index$acc_to_sym[acc], sub("\\|.*", "", nm))
-          data.frame(Peptide = pep, Hit = nm, Gene_sym = gene_sym,
-                     Mismatches = c(rep(0L, length(exact_idx)), rep(1L, length(near_idx))),
-                     stringsAsFactors = FALSE)
-        })))
-        store_al(if (is.null(al_hits)) data.frame() else al_hits)
-      }
-    }
   }, ignoreInit = FALSE, ignoreNULL = TRUE)
 
   output$xreact_status_ui <- renderUI({
@@ -2645,14 +3062,16 @@ server <- function(input, output, session) {
       return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", xr$Error[1L]))
     if (nrow(xr) == 0L)
       return(tags$p(class = "text-success small mb-1",
-                    icon("circle-check"), " No canonical matches (exact or 1 mismatch)."))
+                    icon("circle-check"), " No canonical matches (up to 2 mismatches)."))
     n_exact <- sum(xr$Mismatches == 0L, na.rm = TRUE)
-    n_near  <- sum(xr$Mismatches == 1L, na.rm = TRUE)
-    label <- paste0(
+    n_near1 <- sum(xr$Mismatches == 1L, na.rm = TRUE)
+    n_near2 <- sum(xr$Mismatches == 2L, na.rm = TRUE)
+    parts <- c(
       if (n_exact > 0L) paste0(n_exact, " exact gene(s)"),
-      if (n_exact > 0L && n_near > 0L) ", ",
-      if (n_near  > 0L) paste0(n_near, " 1-mismatch gene(s)")
+      if (n_near1 > 0L) paste0(n_near1, " 1-mismatch gene(s)"),
+      if (n_near2 > 0L) paste0(n_near2, " 2-mismatch gene(s)")
     )
+    label <- paste(parts, collapse = ", ")
     tags$p(class = "fw-semibold small text-warning mb-1",
            icon("triangle-exclamation"), " ", label,
            ". Click a row to view expression.")
@@ -2664,9 +3083,13 @@ server <- function(input, output, session) {
     if (is.null(xr) || "Error" %in% names(xr) || nrow(xr) == 0L) return(NULL)
     xrs <- xr[order(xr$Mismatches, xr$Gene_sym), ]
     DT::datatable(
-      data.frame(Peptide = xrs$Peptide, Gene = xrs$Gene_sym, ENSG = xrs$ENSG,
-                 Mismatches = xrs$Mismatches, Isoforms = xrs$N_isoforms,
+      data.frame(Gene       = xrs$Gene_sym,
+                 ENSG       = xrs$ENSG,
+                 Mismatches = xrs$Mismatches,
+                 Query      = xrs$Query_html,
+                 Target     = xrs$Target_html,
                  stringsAsFactors = FALSE),
+      escape    = FALSE,
       selection = "single", rownames = FALSE,
       options   = list(pageLength = 5, dom = "tp", scrollX = TRUE),
       class     = "compact stripe"
@@ -2688,50 +3111,7 @@ server <- function(input, output, session) {
       return()
     }
     modal_gene_rv(list(gid = gid, sym = gene_sym))
-    showModal(modalDialog(
-      title = paste("Expression:", gene_sym), size = "xl", easyClose = TRUE,
-      footer = modalButton("Close"),
-      radioButtons("modal_expr_scale", "Y axis:",
-                   choices = c("log(TPM+1)" = "log", "Raw TPM" = "raw"),
-                   selected = "log", inline = TRUE),
-      plotlyOutput("modal_expr_plot", height = "420px")
-    ))
-  })
-
-  output$allergen_status_ui <- renderUI({
-    req(input$detail_orf_id)
-    al <- allergen_cache_rv()[[input$detail_orf_id]]
-    if (is.null(al))
-      return(div(class = "d-flex align-items-center gap-2 text-muted small mb-1",
-                 tags$span(class = "spinner-border spinner-border-sm"), " Checking…"))
-    if ("Error" %in% names(al))
-      return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", al$Error[1L]))
-    if (nrow(al) == 0L)
-      return(tags$p(class = "text-success small mb-1",
-                    icon("circle-check"), " No allergen matches (exact or 1 mismatch)."))
-    n_exact <- sum(al$Mismatches == 0L, na.rm = TRUE)
-    n_near  <- sum(al$Mismatches == 1L, na.rm = TRUE)
-    label <- paste0(
-      if (n_exact > 0L) paste0(n_exact, " exact"),
-      if (n_exact > 0L && n_near > 0L) ", ",
-      if (n_near  > 0L) paste0(n_near, " 1-mismatch")
-    )
-    tags$p(class = "fw-semibold small text-danger mb-1",
-           icon("triangle-exclamation"), " ", label, " allergen hit(s).")
-  })
-
-  output$allergen_hits_dt <- DT::renderDT({
-    req(input$detail_orf_id)
-    al <- allergen_cache_rv()[[input$detail_orf_id]]
-    if (is.null(al) || "Error" %in% names(al) || nrow(al) == 0L) return(NULL)
-    als <- al[order(al$Mismatches, al$Gene_sym), ]
-    DT::datatable(
-      data.frame(Peptide = als$Peptide, Allergen = als$Hit, Gene = als$Gene_sym,
-                 Mismatches = als$Mismatches, stringsAsFactors = FALSE),
-      selection = "none", rownames = FALSE,
-      options   = list(pageLength = 5, dom = "tp", scrollX = TRUE),
-      class     = "compact stripe"
-    )
+    showModal(expr_modal(gene_sym = gene_sym, gid = gid, aln_text = NULL))
   })
 
   # ── BLAST homology — Ensembl 114 pep, debounced 750 ms ───────────────────────
@@ -2746,7 +3126,9 @@ server <- function(input, output, session) {
     if (is.na(orf_seq) || !nzchar(orf_seq)) return()
 
     store_bl <- function(result) {
-      cache <- blast_cache_rv(); cache[[oid]] <- result; blast_cache_rv(cache)
+      entry <- if (is.list(result) && !is.data.frame(result)) result
+               else list(table = result, text = "")
+      cache <- blast_cache_rv(); cache[[oid]] <- entry; blast_cache_rv(cache)
     }
 
     db <- REF_DB_ENSEMBL
@@ -2803,6 +3185,7 @@ server <- function(input, output, session) {
     result <- data.frame(
       Gene_sym    = gene_sym,
       ENSG        = ensg,
+      ENSP        = ensp,          # kept for alignment section lookup
       Identity    = paste0(round(pident_num, 1), "%"),
       pident      = pident_num,
       Coverage    = paste0(coverage, "%"),
@@ -2814,28 +3197,51 @@ server <- function(input, output, session) {
     # Deduplicate to one row per gene (keep highest identity hit)
     result <- result[order(result$ENSG, -result$pident), ]
     result <- result[!duplicated(result$ENSG), ]
-    store_bl(result)
+    # Exclude self: drop hits where the target gene is the ORF's own gene
+    orf_row  <- filter(orf_table_rv(), orf_id == oid)
+    orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
+    if (!is.na(orf_ensg))
+      result <- result[is.na(result$ENSG) | result$ENSG != orf_ensg, , drop = FALSE]
+
+    # Run blastp -outfmt 0 to capture the pairwise alignment text for display
+    blast_text <- tryCatch({
+      tmp_fa  <- tempfile(fileext = ".fa")
+      tmp_aln <- tempfile(fileext = ".txt")
+      on.exit(unlink(c(tmp_fa, tmp_aln)), add = TRUE)
+      writeLines(c(">query", orf_seq), tmp_fa)
+      system2("blastp",
+              args = c("-query", tmp_fa, "-db", db,
+                       "-evalue", "0.001", "-max_target_seqs", "50",
+                       "-out", tmp_aln),
+              stdout = FALSE, stderr = FALSE)
+      if (file.exists(tmp_aln)) paste(readLines(tmp_aln, warn = FALSE), collapse = "\n") else ""
+    }, error = function(e) "")
+
+    store_bl(list(table = result, text = blast_text))
   }, ignoreInit = FALSE, ignoreNULL = TRUE)
 
   output$blast_status_ui <- renderUI({
     req(input$detail_orf_id)
-    br <- blast_cache_rv()[[input$detail_orf_id]]
-    if (is.null(br))
+    entry <- blast_cache_rv()[[input$detail_orf_id]]
+    if (is.null(entry))
       return(div(class = "d-flex align-items-center gap-2 text-muted small mb-1",
                  tags$span(class = "spinner-border spinner-border-sm"), " Running BLAST…"))
+    br <- entry$table
     if ("Error" %in% names(br))
       return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", br$Error[1L]))
     if (nrow(br) == 0L)
       return(tags$p(class = "text-success small mb-1",
                     icon("circle-check"), " No homologous genes (≥50% identity, ≥30% coverage)."))
     tags$p(class = "fw-semibold small text-warning mb-1", icon("dna"), " ",
-           sprintf("%d homologous gene(s). Click a row to view expression.", nrow(br)))
+           sprintf("%d homologous gene(s). Click a row to view expression and alignment.", nrow(br)))
   })
 
   output$blast_hits_dt <- DT::renderDT({
     req(input$detail_orf_id)
-    br <- blast_cache_rv()[[input$detail_orf_id]]
-    if (is.null(br) || "Error" %in% names(br) || nrow(br) == 0L) return(NULL)
+    entry <- blast_cache_rv()[[input$detail_orf_id]]
+    if (is.null(entry)) return(NULL)
+    br <- entry$table
+    if ("Error" %in% names(br) || nrow(br) == 0L) return(NULL)
     DT::datatable(
       data.frame(Gene = br$Gene_sym, ENSG = br$ENSG, Identity = br$Identity,
                  Coverage = br$Coverage, E_value = br$E_value,
@@ -2845,12 +3251,16 @@ server <- function(input, output, session) {
       class     = "compact stripe"
     )
   })
+  outputOptions(output, "blast_status_ui", suspendWhenHidden = FALSE)
+  outputOptions(output, "blast_hits_dt",   suspendWhenHidden = FALSE)
 
   observeEvent(input$blast_hits_dt_rows_selected, {
     idx <- input$blast_hits_dt_rows_selected
     req(length(idx) > 0L, input$detail_orf_id)
-    br  <- blast_cache_rv()[[input$detail_orf_id]]
-    req(!is.null(br), nrow(br) > 0L, !"Error" %in% names(br))
+    entry <- blast_cache_rv()[[input$detail_orf_id]]
+    req(!is.null(entry))
+    br <- entry$table
+    req(nrow(br) > 0L, !"Error" %in% names(br))
     row      <- br[idx, ]
     gid      <- row$ENSG
     gene_sym <- row$Gene_sym
@@ -2859,15 +3269,29 @@ server <- function(input, output, session) {
                        type = "message", duration = 4)
       return()
     }
+
+    # Extract the pairwise alignment section for the clicked ENSP from the cached text
+    ensp_id <- row$ENSP %||% ""
+    aln_text <- tryCatch({
+      txt <- entry$text
+      if (!nzchar(txt) || !nzchar(ensp_id)) return(NULL)
+      lines      <- strsplit(txt, "\n", fixed = TRUE)[[1]]
+      hit_starts <- grep("^>", lines)
+      if (!length(hit_starts)) return(NULL)
+      sec <- NULL
+      for (k in seq_along(hit_starts)) {
+        if (grepl(ensp_id, lines[hit_starts[k]], fixed = TRUE)) {
+          end <- if (k < length(hit_starts)) hit_starts[k + 1L] - 1L else length(lines)
+          sec <- paste(lines[hit_starts[k]:end], collapse = "\n")
+          break
+        }
+      }
+      sec
+    }, error = function(e) NULL)
+    blast_aln_rv(aln_text)
+
     modal_gene_rv(list(gid = gid, sym = gene_sym))
-    showModal(modalDialog(
-      title = paste("Expression:", gene_sym), size = "xl", easyClose = TRUE,
-      footer = modalButton("Close"),
-      radioButtons("modal_expr_scale", "Y axis:",
-                   choices = c("log(TPM+1)" = "log", "Raw TPM" = "raw"),
-                   selected = "log", inline = TRUE),
-      plotlyOutput("modal_expr_plot", height = "420px")
-    ))
+    showModal(expr_modal(gene_sym = gene_sym, gid = gid, aln_text = aln_text))
   })
 
   # ── Report ───────────────────────────────────────────────────────────────────

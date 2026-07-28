@@ -81,12 +81,12 @@ pct_bar_html <- function(pct, color) {
 
 off_tissue_risk <- function(tumor_only, tissues_q3_gt1,
                              risk_map = off_tissue_risk_adult) {
-  to <- as.logical(tumor_only)
-  if (is.na(to)) return("Unavailable")
+  to  <- as.logical(tumor_only)
   if (isTRUE(to)) return("Safe")
   raw     <- if (is.null(tissues_q3_gt1) || is.na(tissues_q3_gt1)) "" else as.character(tissues_q3_gt1)
   parts   <- trimws(strsplit(raw, "|", fixed = TRUE)[[1]])
   tissues <- sub("=.*", "", parts[nzchar(parts)])
+  if (is.na(to) && length(tissues) == 0L) return("Unavailable")
   risks   <- risk_map[tissues]
   risks   <- risks[!is.na(risks)]
   if (length(risks) == 0L) return("Acceptable")

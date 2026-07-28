@@ -2,7 +2,7 @@
 
 **Tumor Immunopeptidomics Target Atlas of Non‑canonical ORFs**
 
-A Shiny app for prioritising non-canonical ORF (ncORF) peptide candidates identified by immunopeptidomics mass spectrometry. TITAN integrates ribo-seq translation evidence, RNA-seq tumour expression, GTEx normal-tissue specificity, TCGA pan-cancer coverage and Ribocrypt external translation data into a single scored, interactive candidate table. The ORF Detail tab provides per-candidate safety checks: canonical cross-reactivity and allergen cross-reactivity (Biostrings exact/1-mismatch matching) and BLAST homology (blastp), all run offline against pre-built Ensembl 114 reference databases.
+A Shiny app for prioritising non-canonical ORF (ncORF) peptide candidates identified by immunopeptidomics mass spectrometry. TITAN integrates ribo-seq translation evidence, RNA-seq tumour expression, GTEx normal-tissue specificity, TCGA pan-cancer coverage and Ribocrypt external translation data into a single scored, interactive candidate table. The ORF Detail tab provides per-candidate safety checks: canonical cross-reactivity (Biostrings exact/1-mismatch/2-mismatch matching against the Ensembl 114 proteome) and BLAST homology (blastp), all run offline against pre-built Ensembl 114 reference databases.
 
 ---
 
@@ -52,9 +52,6 @@ mkdir -p logs
 # ~1 h, 16 GB — downloads Ensembl 114 pep, deduplicates, builds BLAST db + index
 sbatch app/scripts/01_prep_ensembl_pep.sbatch
 
-# ~30 min, 4 GB — downloads UniProt allergen set (KW-0020, reviewed)
-sbatch app/scripts/02_prep_allergen.sbatch
-
 # ~30 min, 8 GB — offline biomaRt query for gene annotations
 sbatch app/scripts/03_prep_annotation.sbatch
 ```
@@ -66,7 +63,6 @@ Outputs written to `app/ref/` (gitignored):
 | `ref/ensembl114_pep/ensembl114_pep_index.rds` | Canonical cross-reactivity (Biostrings) |
 | `ref/ensembl114_pep/ensembl114_pep.*` | BLAST homology database |
 | `ref/ensembl114_pep/ensembl_gene_annotation.rds` | BLAST hit annotation |
-| `ref/allergen_uniprot/allergen_index.rds` | Allergen cross-reactivity (Biostrings) |
 
 The app starts without these files (safety check cards show an informational prompt); build them to activate the full ORF Detail functionality.
 
@@ -155,7 +151,7 @@ Navigate to `http://localhost:3838` in your browser.
 2. **Overview** tab — filter by biotype, ribo-seq and RNA-seq thresholds; inspect translation/expression distributions
 3. **MS** tab — upload a TITAN-ready peptide file; the app matches peptides to ORF protein sequences. Peptides that match an `ORF-annotated` or `NC-variant` ORF are restricted to those canonical biotypes and excluded from ncORF evidence.
 4. **Prioritisation** tab — candidates are displayed one row per gene (grouped by gene × biotype × peptide set), with the highest-scoring ORF as the representative; click **+** to expand and inspect co-identified ORFs within the same group. Rows are ranked by a weighted priority score; filter by tumour specificity category or GTEx expression; click a row for the candidate detail panel (tissue Q3 flags, score profile radar, dimension breakdown).
-5. **ORF Detail** tab — per-ORF safety assessment and expression context. The protein sequence card shows the full predicted protein with matched MS peptides highlighted. The **Cross-reactivity card** runs two checks on selection: (a) canonical self-protein matching against the Ensembl 114 human proteome (exact and 1-mismatch, gene-level collapse, isoform count) and (b) allergen matching against UniProt reviewed allergen proteins (KW-0020). The **BLAST homology card** runs `blastp` against the same Ensembl 114 proteome (debounced 750 ms), reporting hits at ≥ 50 % identity and ≥ 30 % alignment coverage annotated with gene description; click a hit row to view its expression profile. All checks are session-cached per ORF. Clicking any gene row opens a three-panel expression modal (target tumour / GTEx / TCGA).
+5. **ORF Detail** tab — per-ORF safety assessment and expression context. The left column shows the protein sequence card (full predicted protein with matched MS peptides highlighted) and the cross-reactivity card (canonical self-protein matching against the Ensembl 114 human proteome — exact and 1-mismatch, gene-level collapse, isoform count). The right column shows the **BLAST homology card**, which runs `blastp` against the same Ensembl 114 proteome (debounced 750 ms), reporting hits at ≥ 50 % identity and ≥ 30 % alignment coverage annotated with gene description; click a hit row to view its expression profile. All checks are session-cached per ORF. Clicking any gene row opens a three-panel expression modal (target tumour / GTEx / TCGA).
 
 ---
 

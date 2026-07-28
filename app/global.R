@@ -57,7 +57,8 @@ biotypes       <- character(0)
 
 # Load Bioconductor packages without attaching to avoid masking dplyr::slice, dplyr::filter etc.
 requireNamespace("Biostrings", quietly = TRUE)
-requireNamespace("rBLAST",     quietly = TRUE)
+requireNamespace("IRanges",   quietly = TRUE)
+requireNamespace("rBLAST",    quietly = TRUE)
 
 # Prepend bundled blastp binary so rBLAST finds it without any module or Singularity
 local({
@@ -84,23 +85,6 @@ ensembl_pep_index <- local({
   }
   idx <- readRDS(f)
   message(sprintf("Ensembl 114 pep: %d unique sequences loaded", length(idx$seqs)))
-  idx
-})
-
-# ── Allergen reference (non-self cross-reactivity) ────────────────────────────
-# Built by scripts/02_prep_allergen.R. List with:
-#   $seqs         named character: "ENTRY|ACC" → AA sequence
-#   $mnem_to_sym  named vector: mnemonic → gene symbol (GN= field)
-#   $acc_to_sym   named vector: UniProt accession → gene symbol
-#   $meta_df      data.frame: acc, entry, mnemonic, gene_sym
-allergen_index <- local({
-  f <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/allergen_uniprot/allergen_index.rds"
-  if (!file.exists(f)) {
-    message("Allergen index not found — run scripts/02_prep_allergen.sbatch first")
-    return(NULL)
-  }
-  idx <- readRDS(f)
-  message(sprintf("Allergen reference: %d sequences loaded", length(idx$seqs)))
   idx
 })
 

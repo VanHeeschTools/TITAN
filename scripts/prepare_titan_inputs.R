@@ -344,8 +344,7 @@ if (has_separate_tumor) {
 
 # ── 4a. Target expression (tumour samples) ───────────────────────────────────
 
-gene_ids_available <- intersect(ncorfs$gene_id_clean, rownames(tumor_tpm_m))
-rna_tpm_sub <- tumor_tpm_m[gene_ids_available, , drop = FALSE]
+rna_tpm_sub <- tumor_tpm_m
 
 expr_metrics <- compute_expression_metrics(rna_tpm_sub, threshold = expr_threshold) %>%
   dplyr::rename(
@@ -438,8 +437,7 @@ if (!is.null(gtex_de_metrics)) {
 }
 
 # Subset GTEx matrix to candidate genes for per-sample plots
-gtex_gene_ids_avail <- intersect(ncorfs$gene_id_clean, rownames(gtex_tpm_m))
-gtex_tpm_sub        <- gtex_tpm_m[gtex_gene_ids_avail, gtex_ids, drop = FALSE]
+gtex_tpm_sub <- gtex_tpm_m[, gtex_ids, drop = FALSE]
 gtex_sample_meta    <- data.frame(
   sample_id   = gtex_ids,
   tissue_type = coldata_gtex$tissue_type[match(gtex_ids, coldata_gtex$sample_id)],
@@ -481,9 +479,8 @@ tcga_normal_metrics <- compute_expression_metrics(tcga_tpm[, is_normal, drop = F
   mutate(gene_id_clean = rownames(.))
 
 tcga_coldata        <- readRDS(cfg$paths$tcga_coldata)
-tcga_gene_ids_avail <- intersect(ncorfs$gene_id_clean, rownames(tcga_tpm))
-keep_tcga           <- is_tumor | is_normal
-tcga_tpm_sub        <- tcga_tpm[tcga_gene_ids_avail, keep_tcga, drop = FALSE]
+keep_tcga    <- is_tumor | is_normal
+tcga_tpm_sub <- tcga_tpm[, keep_tcga, drop = FALSE]
 
 ids_kept    <- colnames(tcga_tpm)[keep_tcga]
 cd_idx      <- match(ids_kept, tcga_coldata$sample_id)
@@ -523,6 +520,90 @@ titan_table <- ncorfs %>%
   left_join(gtex_data,            by = "gene_id_clean") %>%
   left_join(tcga_tumor_metrics,   by = "gene_id_clean") %>%
   left_join(tcga_normal_metrics,  by = "gene_id_clean")
+
+# ─── ORF ID normalisation ────────────────────────────────────────────────────
+# Target format:
+#   orf_id     = {versioned_gene_id}_{8-char md5 hex}
+#   summary_id = {orf_id}_{chr}_{orf_start}_{orf_end}_{strand}_{orf_biotype_single}
+# Hash inputs: protein_seq | starts | ends | chr | strand
+#   where starts/ends are pipeline multi-exon coordinate columns in ncorfs.
+# Rows already matching the target regex are left unchanged (source_orf_id = NA).
+# Collision resolution: all rows sharing the same candidate id get _1, _2, ...
+cat("\nNormalising orf_id and summary_id...\n")
+
+CONFORMING_RE <- "^ENSG[0-9]+\\.[0-9]+_[0-9a-f]{8}$"
+conforming    <- grepl(CONFORMING_RE, ncorfs$orf_id)
+
+hash_na <- is.na(ncorfs$protein_seq) | is.na(ncorfs$starts) |
+           is.na(ncorfs$ends)        | is.na(ncorfs$chr)     |
+           is.na(ncorfs$strand)
+to_hash <- !conforming & !hash_na
+
+if (any(hash_na & !conforming)) {
+  warning(sprintf(
+    "%d non-conforming orf(s) have NA in hash input column(s) — orf_id unchanged:\n  %s",
+    sum(hash_na & !conforming),
+    paste(head(ncorfs$orf_id[hash_na & !conforming], 5), collapse = ", ")
+  ), call. = FALSE)
+}
+
+new_orf_id <- ncorfs$orf_id
+if (any(to_hash)) {
+  hash_str <- paste0(
+    ncorfs$protein_seq[to_hash], "|",
+    ncorfs$starts[to_hash],      "|",
+    ncorfs$ends[to_hash],        "|",
+    ncorfs$chr[to_hash],         "|",
+    ncorfs$strand[to_hash]
+  )
+  h8 <- substr(
+    vapply(hash_str, digest::digest, character(1L), algo = "md5", USE.NAMES = FALSE),
+    1L, 8L
+  )
+  new_orf_id[to_hash] <- paste0(ncorfs$gene_id[to_hash], "_", h8)
+}
+
+# Collision resolution — every row in a collision group gets _1, _2, ...
+dupes <- unique(new_orf_id[duplicated(new_orf_id)])
+if (length(dupes) > 0L) {
+  cat(sprintf("  Resolving %d collision group(s) with _N suffix.\n", length(dupes)))
+  oid_count <- list()
+  for (i in seq_along(new_orf_id)) {
+    oid <- new_orf_id[i]
+    if (oid %in% dupes) {
+      oid_count[[oid]] <- (oid_count[[oid]] %||% 0L) + 1L
+      new_orf_id[i]    <- paste0(oid, "_", oid_count[[oid]])
+    }
+  }
+}
+
+source_orf_id <- ifelse(new_orf_id != ncorfs$orf_id, ncorfs$orf_id, NA_character_)
+id_map        <- setNames(new_orf_id, ncorfs$orf_id)
+
+# summary_id recomputed unconditionally (after collision resolution)
+new_summary_id <- paste0(
+  new_orf_id,               "_",
+  ncorfs$chr,               "_",
+  ncorfs$orf_start,         "_",
+  ncorfs$orf_end,           "_",
+  ncorfs$strand,            "_",
+  ncorfs$orf_biotype_single
+)
+sm_map <- setNames(new_summary_id, ncorfs$orf_id)
+
+# Apply to titan_table using the original orf_id as the lookup key
+orig_ids                  <- titan_table$orf_id
+titan_table$source_orf_id <- source_orf_id[match(orig_ids, ncorfs$orf_id)]
+titan_table$orf_id        <- id_map[orig_ids]
+titan_table$summary_id    <- sm_map[orig_ids]
+titan_table               <- dplyr::relocate(titan_table, source_orf_id, .after = summary_id)
+
+# Keep matrix rownames in sync so the app's per-ORF lookups stay valid
+rownames(ribo_ppm_mat)  <- id_map[rownames(ribo_ppm_mat)]
+rownames(ribocrypt_mat) <- id_map[rownames(ribocrypt_mat)]
+
+cat(sprintf("  %d orf_ids normalised | %d already conforming | %d skipped (NA inputs)\n",
+            sum(!is.na(titan_table$source_orf_id)), sum(conforming), sum(hash_na & !conforming)))
 
 cat(sprintf("      Final table: %d ORFs × %d columns\n",
             nrow(titan_table), ncol(titan_table)))

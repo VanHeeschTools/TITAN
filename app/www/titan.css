@@ -275,6 +275,123 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 /* ── Pill badges (global) ────────────────────────────────────────────────── */
 .badge.rounded-pill { font-size: .71rem; padding: .3em .7em; font-weight: 500; }
 
+/* ── ORF Detail — gene-type badge (distinct from ORF biotype badge) ─────── */
+.titan-badge-gene-type {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #E8EDF0;
+  color: #5D6D7E;
+  border: 1px solid var(--clr-border-subtle);
+  white-space: nowrap;
+}
+
+/* ── Copy-to-clipboard button ────────────────────────────────────────────── */
+.titan-copy-btn {
+  background: none;
+  border: none;
+  color: #A9B8C0;
+  cursor: pointer;
+  padding: 0 3px;
+  font-size: 10px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.titan-copy-btn:hover { color: var(--clr-primary); }
+
+/* ── Cascading ORF selector labels ──────────────────────────────────────── */
+.titan-selector-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #8A9CAA;
+  margin-bottom: 2px;
+  display: block;
+}
+
+/* ── Selectize ORF option (three-tier rich row) ─────────────────────────── */
+/* PRIMARY  : protein length + coordinates — what actually differs, most weight  */
+/* SECONDARY: biotype badge + start codon — context, demoted                     */
+/* TERTIARY : orf_id hash — reference only, smallest/most muted                  */
+
+.titan-orf-opt {
+  padding: 4px 0;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--clr-border);
+}
+.selectize-dropdown .option:last-child .titan-orf-opt {
+  border-bottom: none;
+}
+
+.titan-orf-opt-primary {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1A2F3A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titan-orf-opt-secondary {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #4E6778;
+  margin-top: 2px;
+}
+
+.titan-orf-opt-bio {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.titan-orf-opt-meta {
+  font-size: 10px;
+  color: #6A8899;
+  font-family: 'IBM Plex Mono', monospace;
+  display: block;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Closed/selected-state display: "1,436 aa  ORF-annotated" */
+.titan-orf-item-primary {
+  font-size: 10px;
+  font-weight: 500;
+  color: #1A2F3A;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.titan-orf-item-biotype {
+  font-size: 10px;
+  color: #6A8899;
+  vertical-align: middle;
+}
+
+/* Override selectize's BS-primary background on active/selected options.         */
+/* Replaces the theme teal (#28646E) with --clr-hover (light teal tint), which   */
+/* is the same token used for DT row hover — dark text remains readable as-is.   */
+.selectize-dropdown .option.active,
+.selectize-dropdown .option.selected,
+.selectize-dropdown [data-selectable].active,
+.selectize-dropdown [data-selectable].selected {
+  background-color: var(--clr-hover) !important;
+  color: inherit !important;
+}
+.selectize-dropdown .option.active .titan-orf-opt,
+.selectize-dropdown .option.selected .titan-orf-opt {
+  border-bottom-color: var(--clr-border-subtle);
+}
+
 /* ── ORF Detail tab ──────────────────────────────────────────────────────── */
 #detail_protein_seq {
   font-family: 'IBM Plex Mono', monospace;
@@ -890,4 +1007,11 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 }
 .btn-titan-ready {
   animation: titan-ready-in 0.25s ease-out;
+}
+
+/* ── Modal vertical margin ────────────────────────────────────────────────── */
+@media (min-width: 576px) {
+  .modal {
+    --bs-modal-margin: 5%;
+  }
 }
