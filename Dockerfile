@@ -34,7 +34,9 @@ RUN Rscript -e "BiocManager::install(c('Biostrings', 'IRanges', 'rBLAST'), ask=F
 
 COPY app/ /srv/titan/
 
-# Create the blastp wrapper expected by rBLAST (only blastp.REAL is on disk)
+ENV PATH="/srv/titan/bin:${PATH}"
+
+# Ensure the blastp symlink exists (blastp.REAL is the actual binary)
 RUN ln -sf /srv/titan/bin/blastp.REAL /srv/titan/bin/blastp \
  && chown -R shiny:shiny /srv/titan
 
