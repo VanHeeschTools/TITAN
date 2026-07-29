@@ -460,10 +460,9 @@ ui <- page_navbar(
                 "dplyr", "tidyr", "stringr", "ggplot2", "shinyWidgets",
                 "Biostrings", "rBLAST"),
               function(pkg) {
-                ver <- tryCatch(as.character(packageVersion(pkg)), error = function(e) "not installed")
                 tags$li(class = "d-flex justify-content-between py-1 border-bottom",
                   tags$code(pkg),
-                  tags$span(class = "text-muted", ver)
+                  tags$span(class = "text-muted", as.character(packageVersion(pkg)))
                 )
               }
             )
@@ -557,17 +556,17 @@ ui <- page_navbar(
 
   # ── Tab 2: Overview ─────────────────────────────────────────────────────────
   nav_panel(
-    "Overview", icon = icon("chart-bar"),
+    "Overview", icon = icon("eye"),
     layout_columns(
       col_widths = c(3, 3, 3, 3),
       value_box("Total candidates",  textOutput("stat_total",        inline = TRUE),
-                showcase = icon("microscope"),   theme = "primary"),
+                showcase = icon("list"),   theme = "primary"),
       value_box("Unique genes",      textOutput("stat_genes",        inline = TRUE),
                 showcase = icon("dna"),          theme = "secondary"),
       value_box("Matched ORFs",      textOutput("stat_matched_orfs", inline = TRUE),
-                showcase = icon("vials"),        theme = "success"),
+                showcase = icon("check-double"),        theme = "success"),
       value_box("MS peptide hits",   textOutput("stat_matches",      inline = TRUE),
-                showcase = icon("check-circle"), theme = "info")
+                showcase = icon("vials"), theme = "info")
     ),
 
     layout_columns(
@@ -597,7 +596,7 @@ ui <- page_navbar(
 
   # ── Tab 3: Prioritisation ───────────────────────────────────────────────────
   nav_panel(
-    "Prioritisation", icon = icon("ranking-star"),
+    "Prioritisation", icon = icon("chart-line"),
 
     conditionalPanel(
       condition = "output.has_peptides == false",
@@ -730,7 +729,7 @@ ui <- page_navbar(
 
   # ── Tab 5: Report ───────────────────────────────────────────────────────────
   nav_panel(
-    "Report", icon = icon("file-pdf"),
+    "Report", icon = icon("file-lines"),
     div(class = "container-fluid py-3",
       layout_columns(
         col_widths = c(2, 8, 2),
@@ -797,9 +796,9 @@ ui <- page_navbar(
         ),
         tags$p(class = "text-muted small mb-0",
                "Reference databases are built once via ",
-               tags$code("scripts/reference_prep/01_prep_ensembl_pep.R"),
+               tags$code("app/scripts/01_prep_ensembl_pep.sbatch"),
                " and ",
-               tags$code("scripts/reference_prep/02_prep_annotation.R"),
+               tags$code("03_prep_annotation.sbatch"),
                ". All checks run offline at app runtime — no internet access required."),
         tags$hr(),
         uiOutput("about_data_info")
@@ -2942,7 +2941,7 @@ server <- function(input, output, session) {
       if (length(peps) == 0L) {
         store_xr(data.frame())
       } else if (is.null(ensembl_pep_index) || length(ensembl_pep_index$seqs) == 0L) {
-        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
+        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/01_prep_ensembl_pep.sbatch first."))
       } else {
         ref_set <- Biostrings::AAStringSet(ensembl_pep_index$seqs)
         ref_md5 <- names(ensembl_pep_index$seqs)   # md5 hashes as names
@@ -3135,7 +3134,7 @@ server <- function(input, output, session) {
     db <- REF_DB_ENSEMBL
     if (!file.exists(paste0(db, ".pdb")) && !file.exists(paste0(db, ".phr"))) {
       store_bl(data.frame(Error = paste0("BLAST database not found: ", db,
-                                         " — run scripts/reference_prep/01_prep_ensembl_pep.R first.")))
+                                         " — run scripts/01_prep_ensembl_pep.sbatch first.")))
       return()
     }
     if (!nzchar(Sys.which("blastp"))) {
