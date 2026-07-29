@@ -1,5 +1,5 @@
 ## TITAN - Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs
-## Shiny app for prioritising ncORF-derived peptide candidates
+## Shiny app for prioritizing ncORF-derived peptide candidates
 ##
 ## Usage:
 ##   shiny::runApp("/hpc/pmc_oatv/projects/tools_dev/titan/app")
@@ -337,6 +337,12 @@ ui <- page_navbar(
     tags$span("2026")
   ),
   header       = tags$head(
+    tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
+    tags$link(rel = "preconnect", href = "https://fonts.gstatic.com", crossorigin = NA),
+    tags$link(rel = "stylesheet",
+              href = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap"),
+    tags$link(rel = "stylesheet",
+              href = "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"),
     tags$link(rel = "stylesheet", href = "titan.css"),
     tags$script(src = "titan-sliders.js")
   ),
@@ -440,9 +446,9 @@ ui <- page_navbar(
       filtering_sidebar_ui()
     ),
 
-    # Scoring panel: Prioritisation
+    # Scoring panel: Prioritization
     conditionalPanel(
-      condition = "input.main_nav === 'Prioritisation'",
+      condition = "input.main_nav === 'Prioritization'",
       scoring_sidebar_ui()
     ),
 
@@ -523,7 +529,8 @@ ui <- page_navbar(
         tags$img(src = "titan_logo_blue.svg", class = "titan-hero-logo", alt = "TITAN"),
         div(
           class = "titan-hero-text",
-          tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non‑canonical ORFs")
+          tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
+          tags$p(class = "titan-hero-subtitle", "A tool for exploring and prioritizing tumor-specific ncORF translation products, integrating ribo-seq, RNA-seq, and reference databases across study cohorts.")
         )
       ),
 
@@ -594,9 +601,9 @@ ui <- page_navbar(
     )
   ),
 
-  # ── Tab 3: Prioritisation ───────────────────────────────────────────────────
+  # ── Tab 3: Prioritization ───────────────────────────────────────────────────
   nav_panel(
-    "Prioritisation", icon = icon("chart-line"),
+    "Prioritization", icon = icon("chart-line"),
 
     conditionalPanel(
       condition = "output.has_peptides == false",
@@ -611,7 +618,7 @@ ui <- page_navbar(
       div(class = "d-flex flex-column align-items-center justify-content-center mt-5 text-muted",
           icon("play-circle", class = "fa-3x mb-3"),
           tags$h5("Ready to start"),
-          tags$p("Press START on the Data tab to begin prioritisation."))
+          tags$p("Press START on the Data tab to begin prioritization."))
     ),
 
     conditionalPanel(
@@ -764,9 +771,13 @@ ui <- page_navbar(
     "About", icon = icon("circle-question"),
     card(
       card_body(
-        tags$h4("TITAN - Tumor Immunopeptidomics Target Atlas for Non-canonical ORFs"),
-        tags$p("TITAN integrates ribo-seq, RNA-seq, and external databases to prioritise",
+        tags$h4("TITAN — Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
+        tags$p("TITAN integrates ribo-seq, RNA-seq, and external databases to prioritize",
                " non-canonical ORF-derived peptide candidates for cancer immunotherapy."),
+        tags$p(
+          tags$a("View documentation ↗", href = "https://github.com/VanHeeschTools/TITAN/wiki",
+                 target = "_blank", class = "small")
+        ),
         tags$hr(),
         tags$h6("Data sources"),
         tags$ul(
@@ -824,7 +835,7 @@ server <- function(input, output, session) {
   modal_gene_rv   <- reactiveVal(NULL)   # list(gid=ENSG, sym=gene_symbol)
   blast_aln_rv    <- reactiveVal(NULL)   # pairwise alignment text for current modal
 
-  # Pending ORF from Prioritisation row-click (applied after gene cascade resolves)
+  # Pending ORF from Prioritization row-click (applied after gene cascade resolves)
   pending_orf_rv  <- reactiveVal(NULL)
 
   # BLAST fires 750 ms after the user stops changing candidates.
@@ -1821,7 +1832,7 @@ server <- function(input, output, session) {
     ) %>% config(displayModeBar = FALSE)
   })
 
-  # ── Prioritisation stats ─────────────────────────────────────────────────────
+  # ── Prioritization stats ─────────────────────────────────────────────────────
   output$stat_prio_total <- renderText({
     req(gene_prioritised_data()); formatC(nrow(gene_prioritised_data()), big.mark = ",")
   })
@@ -2192,7 +2203,7 @@ server <- function(input, output, session) {
     prio_row_id(NULL)
   })
 
-  # When the user navigates away from the Prioritisation tab, close the detail
+  # When the user navigates away from the Prioritization tab, close the detail
   # panel. The close button lives inside a renderUI: if the tab is hidden while
   # the panel is open, Shiny's resume-cycle Shiny.bindAll() pass can clear the
   # button's input binding without re-registering it (because renderUI didn't
@@ -2200,7 +2211,7 @@ server <- function(input, output, session) {
   # Resetting prio_row_id here guarantees the panel is empty when the tab is
   # re-shown, so there is never a stale binding to worry about.
   observeEvent(input$main_nav, {
-    if (!isTRUE(input$main_nav == "Prioritisation")) prio_row_id(NULL)
+    if (!isTRUE(input$main_nav == "Prioritization")) prio_row_id(NULL)
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   output$plot_radar <- renderPlotly({
@@ -2941,7 +2952,7 @@ server <- function(input, output, session) {
       if (length(peps) == 0L) {
         store_xr(data.frame())
       } else if (is.null(ensembl_pep_index) || length(ensembl_pep_index$seqs) == 0L) {
-        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/01_prep_ensembl_pep.sbatch first."))
+        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
       } else {
         ref_set <- Biostrings::AAStringSet(ensembl_pep_index$seqs)
         ref_md5 <- names(ensembl_pep_index$seqs)   # md5 hashes as names
@@ -3304,7 +3315,7 @@ server <- function(input, output, session) {
     if (n == 0L)
       return(div(class = "alert alert-warning py-2",
                  icon("triangle-exclamation"),
-                 " No candidates selected. Use the checkboxes in the Prioritisation table."))
+                 " No candidates selected. Use the checkboxes in the Prioritization table."))
     div(class = "alert alert-success py-2",
         icon("circle-check"),
         sprintf(" %d candidate%s selected.", n, if (n == 1L) "" else "s"))

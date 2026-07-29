@@ -2,7 +2,7 @@
 
 **Tumor Immunopeptidomics Target Atlas of Non‑canonical ORFs**
 
-A Shiny app for prioritising non-canonical ORF (ncORF) peptide candidates identified by immunopeptidomics mass spectrometry. TITAN integrates ribo-seq translation evidence, RNA-seq tumour expression, GTEx normal-tissue specificity, TCGA pan-cancer coverage and Ribocrypt external translation data into a single scored, interactive candidate table. The ORF Detail tab provides per-candidate safety checks: canonical cross-reactivity (Biostrings exact/1-mismatch/2-mismatch matching against the Ensembl 114 proteome) and BLAST homology (blastp), all run offline against pre-built Ensembl 114 reference databases.
+A Shiny app for prioritizing non-canonical ORF (ncORF) peptide candidates identified by immunopeptidomics mass spectrometry. TITAN integrates ribo-seq translation evidence, RNA-seq tumour expression, GTEx normal-tissue specificity, TCGA pan-cancer coverage and Ribocrypt external translation data into a single scored, interactive candidate table. The ORF Detail tab provides per-candidate safety checks: canonical cross-reactivity (Biostrings exact/1-mismatch/2-mismatch matching against the Ensembl 114 proteome) and BLAST homology (blastp), all run offline against pre-built Ensembl 114 reference databases.
 
 ---
 
@@ -150,7 +150,7 @@ Navigate to `http://localhost:3838` in your browser.
 1. **Data** tab — load the prepared RDS (`titan_orf_table.rds`) or use the built-in demo dataset
 2. **Overview** tab — filter by biotype, ribo-seq and RNA-seq thresholds; inspect translation/expression distributions
 3. **MS** tab — upload a TITAN-ready peptide file; the app matches peptides to ORF protein sequences. Peptides that match an `ORF-annotated` or `NC-variant` ORF are restricted to those canonical biotypes and excluded from ncORF evidence.
-4. **Prioritisation** tab — candidates are displayed one row per gene (grouped by gene × biotype × peptide set), with the highest-scoring ORF as the representative; click **+** to expand and inspect co-identified ORFs within the same group. Rows are ranked by a weighted priority score; filter by tumour specificity category or GTEx expression; click a row for the candidate detail panel (tissue Q3 flags, score profile radar, dimension breakdown).
+4. **Prioritization** tab — candidates are displayed one row per gene (grouped by gene × biotype × peptide set), with the highest-scoring ORF as the representative; click **+** to expand and inspect co-identified ORFs within the same group. Rows are ranked by a weighted priority score; filter by tumour specificity category or GTEx expression; click a row for the candidate detail panel (tissue Q3 flags, score profile radar, dimension breakdown).
 5. **ORF Detail** tab — per-ORF safety assessment and expression context. The left column shows the protein sequence card (full predicted protein with matched MS peptides highlighted) and the cross-reactivity card (canonical self-protein matching against the Ensembl 114 human proteome — exact and 1-mismatch, gene-level collapse, isoform count). The right column shows the **BLAST homology card**, which runs `blastp` against the same Ensembl 114 proteome (debounced 750 ms), reporting hits at ≥ 50 % identity and ≥ 30 % alignment coverage annotated with gene description; click a hit row to view its expression profile. All checks are session-cached per ORF. Clicking any gene row opens a three-panel expression modal (target tumour / GTEx / TCGA).
 
 ---
