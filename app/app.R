@@ -460,9 +460,10 @@ ui <- page_navbar(
                 "dplyr", "tidyr", "stringr", "ggplot2", "shinyWidgets",
                 "Biostrings", "rBLAST"),
               function(pkg) {
+                ver <- tryCatch(as.character(packageVersion(pkg)), error = function(e) "not installed")
                 tags$li(class = "d-flex justify-content-between py-1 border-bottom",
                   tags$code(pkg),
-                  tags$span(class = "text-muted", as.character(packageVersion(pkg)))
+                  tags$span(class = "text-muted", ver)
                 )
               }
             )

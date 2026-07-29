@@ -29,11 +29,8 @@ RUN Rscript -e "\
 # Unpinned utilities (no version constraint from local env)
 RUN Rscript -e "install.packages(c('cowplot', 'data.table', 'jsonlite', 'yaml', 'processx', 'XML', 'BiocManager'), repos='https://cloud.r-project.org')"
 
-# Bioconductor packages — must come before rBLAST (which depends on Biostrings)
-RUN Rscript -e "BiocManager::install(c('Biostrings', 'IRanges'), ask=FALSE, update=FALSE)"
-
-# rBLAST after its Bioconductor dependencies are present
-RUN Rscript -e "install.packages('rBLAST', repos='https://cloud.r-project.org')"
+# Bioconductor packages — rBLAST is a Bioconductor package, not CRAN
+RUN Rscript -e "BiocManager::install(c('Biostrings', 'IRanges', 'rBLAST'), ask=FALSE, update=FALSE)"
 
 COPY app/ /srv/titan/
 
