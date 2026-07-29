@@ -36,9 +36,7 @@ COPY app/ /srv/titan/
 
 ENV PATH="/srv/titan/bin:${PATH}"
 
-# Ensure the blastp symlink exists (blastp.REAL is the actual binary)
-RUN ln -sf /srv/titan/bin/blastp.REAL /srv/titan/bin/blastp \
- && chown -R shiny:shiny /srv/titan
+RUN chown -R shiny:shiny /srv/titan
 
 USER shiny
 
