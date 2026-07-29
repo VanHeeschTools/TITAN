@@ -4,3 +4,8 @@ documentation/
 scripts/
 app/app.R.bak
 app/data/test_*
+# BLAST distribution — only blastp.REAL is needed; the rest is setup tooling
+app/bin/ncbi-blast-2.14.0+-x64-linux.tar.gz
+app/bin/ncbi-blast-2.14.0+/
+# Reference data — provided via volume mount at runtime (local -v or GCS volume)
+app/ref/

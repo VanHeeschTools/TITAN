@@ -68,7 +68,7 @@ local({
 })
 
 # BLAST database: Ensembl 114 pep (deduplicated), same release as pipeline
-REF_DB_ENSEMBL <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep/ensembl114_pep"
+REF_DB_ENSEMBL <- "ref/ensembl114_pep/ensembl114_pep"
 
 # ── Ensembl 114 pep index (self-cross-reactivity + BLAST back-mapping) ────────
 # Built by scripts/01_prep_ensembl_pep.R. List with:
@@ -78,7 +78,7 @@ REF_DB_ENSEMBL <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep
 #   $ensp_to_md5  named vector: ENSP → md5 (BLAST sseqid back-lookup)
 #   $rep_table    data.frame: one row per unique sequence
 ensembl_pep_index <- local({
-  f <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep/ensembl114_pep_index.rds"
+  f <- "ref/ensembl114_pep/ensembl114_pep_index.rds"
   if (!file.exists(f)) {
     message("Ensembl 114 pep index not found — run scripts/01_prep_ensembl_pep.sbatch first")
     return(NULL)
@@ -92,7 +92,7 @@ ensembl_pep_index <- local({
 # Built by scripts/03_prep_annotation.R. data.frame columns:
 #   ensembl_gene_id, external_gene_name, uniprotswissprot, description
 ensembl_gene_annot <- local({
-  f <- "/hpc/pmc_oatv/projects/tools_dev/titan/app/ref/ensembl114_pep/ensembl_gene_annotation.rds"
+  f <- "ref/ensembl114_pep/ensembl_gene_annotation.rds"
   if (!file.exists(f)) {
     message("Ensembl gene annotation not found — run scripts/03_prep_annotation.sbatch first")
     return(NULL)

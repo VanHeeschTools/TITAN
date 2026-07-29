@@ -29,15 +29,16 @@ RUN Rscript -e "\
 # Unpinned utilities (no version constraint from local env)
 RUN Rscript -e "install.packages(c('cowplot', 'data.table', 'jsonlite', 'yaml', 'processx', 'XML'), repos='https://cloud.r-project.org')"
 
-# Serve TITAN at the root path
-RUN printf 'run_as shiny;\n\nserver {\n  listen 3838;\n  location / {\n    app_dir /srv/titan;\n    log_dir /var/log/shiny-server;\n  }\n}\n' \
-    > /etc/shiny-server/shiny-server.conf
-
 COPY app/ /srv/titan/
 
-RUN chown -R shiny:shiny /srv/titan
+# Create the blastp wrapper expected by rBLAST (only blastp.REAL is on disk)
+RUN ln -sf /srv/titan/bin/blastp.REAL /srv/titan/bin/blastp \
+ && chown -R shiny:shiny /srv/titan
 
-EXPOSE 3838
+USER shiny
 
-HEALTHCHECK --interval=30s --timeout=10s CMD \
-    curl -sf http://localhost:3838/ || exit 1
+# Cloud Run injects $PORT (default 8080); local docker run falls back to 3838.
+# Ref data and study data are provided via volume mounts at /srv/titan/ref and
+# /srv/titan/data — either local bind mounts (dev) or GCS volumes (Cloud Run).
+CMD ["Rscript", "-e", \
+     "shiny::runApp('/srv/titan', host='0.0.0.0', port=as.integer(Sys.getenv('PORT', 3838)))"]
