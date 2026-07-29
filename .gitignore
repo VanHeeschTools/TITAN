@@ -2,11 +2,15 @@
 app/data/*
 !app/data/.gitkeep
 
-# ── Scripts (keep only prepare_*.R) ────────────────────────────────────────────
+# ── Scripts ─────────────────────────────────────────────────────────────────────
 scripts/*
 !scripts/prepare_*.R
+!scripts/catalog_prep/
+!scripts/catalog_prep/register_study.R
+!scripts/catalog_prep/configs/
+!scripts/catalog_prep/configs/*.yaml
+!scripts/reference_prep/
 !scripts/reference_prep/*.R
-!scripts/catalog_prep/*.R
 
 # ── Design (design inspiration) ────────────────────────────────────────────
 design/*

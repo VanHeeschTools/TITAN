@@ -1,0 +1,61 @@
+# TITAN data-prep config — TNBC Navarra cohort
+# Usage: Rscript prepare_titan_inputs.R configs/tnbc_navarra.yaml
+
+# ── Study identification (used for output filenames; reserved for future catalog) ──
+study_id:     "teipps_demonstrator"
+display_name: "TEIPPS MEL-CL-0811 (Demonstrator)"
+cancer_type:  "Melanoma"
+cohort:       "TEIPPS"
+
+# ── Tumor sample definition ───────────────────────────────────────────────────
+# Must match the value of coldata$tissue_type that selects tumour samples.
+# All other tissue_type values in the same txi coldata are treated as GTEx normals.
+tumor_type: "Melanoma"
+
+# Label used in progress-log messages (defaults to tumor_type if omitted).
+target_label: "TEIPPS MEL-CL-0811"
+
+# ── Input paths ───────────────────────────────────────────────────────────────
+paths:
+  ncorfs:        "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/riboseq/harmonise_orfs/harmonised_orf_table.csv"
+  ribo_ppm:      "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/riboseq/orf_expression/orf_table_psites_permillion.csv"
+  ribo_psites:   "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/riboseq/orf_expression/orf_table_psites.csv"
+  ribocrypt_ext: "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/riboseq_database_quantification/ribocrypt/ribocrypt_teipps_quantification_psites_permillion.csv"
+  # de_sig_all is optional. If omitted (or path does not exist) the script continues
+  # and sets GTEX_DE_sig_in_all / GTEX_tumor_only / GTEX_tumor_enriched to NA for all rows.
+  #de_sig_all:    "/hpc/pmc_oatv/projects/tnbc_navarra/results/DE/TNBC_polyA_DE_sig_all.tsv"
+  # tumor_quant: path to a tumour-only expression quantification (RDS txi or CSV/TSV flat matrix).
+  # Required here because gtex_quant points to a GTEx-only object with no tumour samples.
+  # Replace with the actual path before running.
+  tumor_quant:   "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/rnaseq/salmon/out_gene_ID_tpms.tsv"
+  gtex_quant:    "/hpc/pmc_vanheesch/shared_resources/quantification/GTEX_quantification/gencode_48_GTEX_quantification/quantification/rds_objects/GTEx_gencode48_genes.RDS"
+  gtex_coldata:  "/hpc/pmc_oatv/projects/sarcoma_demonstrator/rms/rms_rnaseq/analysis/03_GTEx_DE/rds/GTEx_DE_coldata_filtered.RDS"
+  tcga_quant:    "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/TCGA_quantification/rds_objects/TCGA_TEIPPs_genes.RDS"
+  tcga_coldata:  "/hpc/pmc_oatv/projects/teipps_demonstrator/analysis/TCGA_quantification/rds_objects/TCGA_TEIPPs_coldata.RDS"
+
+# ── Output ────────────────────────────────────────────────────────────────────
+# rds/csv default to titan_<study_id>.rds / .csv if omitted.
+output:
+  dir: "/hpc/pmc_oatv/projects/tools_dev/titan/app/data/teipps_demonstrator/"
+  rds: "titan_teipps_demonstrator.rds"
+  csv: "titan_teipps_demonstrator.csv"
+
+# ── Sample ID cleaning ────────────────────────────────────────────────────────
+# Regex applied to ribo-seq column names; matched portion is deleted (replacement = "").
+# Set to null (or omit) to skip cleaning.
+sample_id_regex: "-SL_.*|-EW_.*|.*TIS-|.*ORG-"
+
+# ── Ribo-seq condition classification ─────────────────────────────────────────
+# Pattern matched (ignore.case) against sample names after ID cleaning.
+# match_label / nomatch_label are required when pattern is set.
+# Set pattern to null to assign every sample the tumor_type value as its condition.
+riboseq_condition:
+  pattern:       "IFNg|IFN"
+  match_label:   "IFNg"
+  nomatch_label: "Unstimulated"
+
+# ── Thresholds ────────────────────────────────────────────────────────────────
+# Both default to 1 if omitted.
+thresholds:
+  expression: 1   # min TPM or PPM for a sample to count as "expressed"
+  gtex_q3:    1   # min Q3 TPM for a GTEx tissue to appear in GTEX_tissues_q3_gt1

@@ -797,9 +797,9 @@ ui <- page_navbar(
         ),
         tags$p(class = "text-muted small mb-0",
                "Reference databases are built once via ",
-               tags$code("app/scripts/01_prep_ensembl_pep.sbatch"),
+               tags$code("scripts/reference_prep/01_prep_ensembl_pep.R"),
                " and ",
-               tags$code("03_prep_annotation.sbatch"),
+               tags$code("scripts/reference_prep/02_prep_annotation.R"),
                ". All checks run offline at app runtime — no internet access required."),
         tags$hr(),
         uiOutput("about_data_info")
@@ -2942,7 +2942,7 @@ server <- function(input, output, session) {
       if (length(peps) == 0L) {
         store_xr(data.frame())
       } else if (is.null(ensembl_pep_index) || length(ensembl_pep_index$seqs) == 0L) {
-        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/01_prep_ensembl_pep.sbatch first."))
+        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
       } else {
         ref_set <- Biostrings::AAStringSet(ensembl_pep_index$seqs)
         ref_md5 <- names(ensembl_pep_index$seqs)   # md5 hashes as names
@@ -3135,7 +3135,7 @@ server <- function(input, output, session) {
     db <- REF_DB_ENSEMBL
     if (!file.exists(paste0(db, ".pdb")) && !file.exists(paste0(db, ".phr"))) {
       store_bl(data.frame(Error = paste0("BLAST database not found: ", db,
-                                         " — run scripts/01_prep_ensembl_pep.sbatch first.")))
+                                         " — run scripts/reference_prep/01_prep_ensembl_pep.R first.")))
       return()
     }
     if (!nzchar(Sys.which("blastp"))) {

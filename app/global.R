@@ -71,7 +71,7 @@ local({
 REF_DB_ENSEMBL <- "ref/ensembl114_pep/ensembl114_pep"
 
 # ── Ensembl 114 pep index (self-cross-reactivity + BLAST back-mapping) ────────
-# Built by scripts/01_prep_ensembl_pep.R. List with:
+# Built by scripts/reference_prep/01_prep_ensembl_pep.R. List with:
 #   $seqs         named character: md5 → AA sequence (deduplicated, ~60-80K)
 #   $md5_to_ensg  list: md5 → character vector of ENSG IDs
 #   $md5_to_sym   list: md5 → character vector of gene symbols
@@ -80,7 +80,7 @@ REF_DB_ENSEMBL <- "ref/ensembl114_pep/ensembl114_pep"
 ensembl_pep_index <- local({
   f <- "ref/ensembl114_pep/ensembl114_pep_index.rds"
   if (!file.exists(f)) {
-    message("Ensembl 114 pep index not found — run scripts/01_prep_ensembl_pep.sbatch first")
+    message("Ensembl 114 pep index not found — run scripts/reference_prep/01_prep_ensembl_pep.R first")
     return(NULL)
   }
   idx <- readRDS(f)
@@ -89,12 +89,12 @@ ensembl_pep_index <- local({
 })
 
 # ── Ensembl gene annotation (offline lookup for BLAST hit annotation) ─────────
-# Built by scripts/03_prep_annotation.R. data.frame columns:
+# Built by scripts/reference_prep/02_prep_annotation.R. data.frame columns:
 #   ensembl_gene_id, external_gene_name, uniprotswissprot, description
 ensembl_gene_annot <- local({
   f <- "ref/ensembl114_pep/ensembl_gene_annotation.rds"
   if (!file.exists(f)) {
-    message("Ensembl gene annotation not found — run scripts/03_prep_annotation.sbatch first")
+    message("Ensembl gene annotation not found — run scripts/reference_prep/02_prep_annotation.R first")
     return(NULL)
   }
   df <- readRDS(f)

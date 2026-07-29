@@ -1,0 +1,4 @@
+[submodule "TITAN.wiki"]
+	path = TITAN.wiki
+	url = https://github.com/VanHeeschTools/TITAN.wiki.git
+	branch = master
