@@ -111,6 +111,23 @@ Candidates are scored across 9 weighted dimensions (see the Scoring section belo
 | TCGA columns | Tumor and normal coverage and expression |
 | RC prim / CL | Ribocrypt primary tissue and cell-line metrics |
 
+---
+
+#### Off-Tissue Risk Tiers
+
+Risk tiers are derived from GTEx expression in 28 normal adult tissues. The risk level of a gene reflects the **most critical** tissue where it is expressed above the GTEx Q3 threshold.
+
+| Tier | Adult tissues in this category |
+|---|---|
+| Critical | Brain, Heart, Lung, Liver, Kidney, Colon, Esophagus, Stomach, Small Intestine, Adrenal Gland, Artery, Pancreas, Pituitary, Nerve, Whole Blood |
+| Borderline | Bladder, Breast, Muscle, Ovary, Thyroid |
+| Acceptable | Adipose, Cervix, Fallopian Tube, Prostate, Salivary, Skin, Spleen, Uterus, Vagina |
+| Safe | No GTEx tissue above threshold |
+| Unavailable | GTEx data not available for this study |
+
+> Note: tissues considered as replacable or good with monitorin in adults, may have more sever implications in pediatric patients (e.g., Breast, Ovary, Cervix). The off-tissue risk classification should be critically assessed in each particular case. 
+
+
 ### Candidate Detail Panel
 
 Click a gene name to open a slide-in panel below the table with:
@@ -225,18 +242,3 @@ Lists all data sources, scoring dimensions, and the offline reference pipeline s
 | lncRNA-ORF | ORF in a lncRNA |
 | pseudogene-ORF | ORF in a pseudogene |
 
----
-
-## Off-Tissue Risk Tiers
-
-Risk tiers are derived from GTEx expression in 28 normal adult tissues. The risk level of a gene reflects the **most critical** tissue where it is expressed above the GTEx Q3 threshold.
-
-| Tier | Adult tissues in this category |
-|---|---|
-| Critical | Brain, Heart, Lung, Liver, Kidney, Colon, Esophagus, Stomach, Small Intestine, Adrenal Gland, Artery, Pancreas, Pituitary, Nerve, Whole Blood |
-| Borderline | Bladder, Breast, Muscle, Ovary, Thyroid |
-| Acceptable | Adipose, Cervix, Fallopian Tube, Prostate, Salivary, Skin, Spleen, Uterus, Vagina |
-| Safe | No GTEx tissue above threshold |
-| Unavailable | GTEx data not available for this study |
-
-> Pediatric patients have a stricter risk table — several tissues classified as "Acceptable" in adults (e.g., Breast, Ovary, Cervix) are reclassified as "Critical" or "Borderline". This is handled internally by the scoring module.

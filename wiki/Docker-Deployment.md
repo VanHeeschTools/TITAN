@@ -12,22 +12,6 @@ TITAN ships as a single Docker image that contains the R runtime and all R packa
 
 ---
 
-## Repository Layout (build-time)
-
-The Dockerfile copies only `app/` into the image. The `.dockerignore` excludes:
-
-| Excluded path | Reason |
-|---|---|
-| `app/ref/` | Large reference databases; provided by volume mount |
-| `app/data/` _(except `.gitkeep`)_ | Study RDS files and catalog; provided by volume mount |
-| `app/bin/ncbi-blast-2.14.0+/` | Extracted BLAST binaries; not needed (blastp.REAL is already there) |
-| `app/bin/ncbi-blast-2.14.0+-x64-linux.tar.gz` | 243 MB tarball; not needed |
-| `.git/`, `design/`, `documentation/`, `scripts/` | Not needed inside the container |
-
-This keeps the build context small and means the image itself contains **no patient data or study-specific files**.
-
----
-
 ## Dockerfile
 
 ```dockerfile
@@ -94,12 +78,6 @@ docker build --platform linux/amd64 -t titan:dev .
 
 The build takes 10–20 minutes on first run (Bioconductor packages are slow to install). Subsequent builds use Docker layer cache for all package layers as long as the Dockerfile doesn't change above the `COPY` instruction.
 
-To verify the rBLAST installation before running:
-```bash
-docker run --rm [--platform linux/amd64] titan:dev \
-  Rscript -e "packageVersion('rBLAST')"
-```
-
 ---
 
 ## Running Locally
@@ -117,22 +95,23 @@ The app starts but shows an empty Study Library and the cross-reactivity / BLAST
 ```bash
 docker run --rm \
   [--platform linux/amd64] \
-  -v ~/titan-test/ref:/srv/titan/ref:ro \
-  -v ~/titan-test/data:/srv/titan/data:ro \
+  -v ./titan-test/ref:/srv/titan/ref:ro \
+  -v ./titan-test/data:/srv/titan/data:ro \
   -p 3838:3838 \
   titan:dev
 ```
 
 Open http://localhost:3838 in your browser.
 
-**`~/titan-test/` layout** (sync from HPC first — see below):
+**`./titan-test/` layout** (sync from HPC first — see below):
 ```
-~/titan-test/
+./titan-test/
 ├── ref/
-│   └── ensembl114_pep/
-│       ├── ensembl114_pep_index.rds
-│       ├── ensembl_gene_annotation.rds
-│       └── ensembl114_pep.*        (BLAST database files)
+│   ├── ensembl114_pep/
+│   │   ├── ensembl114_pep_index.rds
+│   │   ├── ensembl_gene_annotation.rds
+│   │   └── ensembl114_pep.*        (BLAST database files)
+│   └── gencode_orfs_phase2.csv
 └── data/
     ├── catalog.yaml
     └── rms_organoids/
@@ -149,12 +128,12 @@ TITAN_HPC="/hpc/pmc_oatv/projects/tools_dev/titan/app"
 # Reference data
 rsync -av --progress \
   "${HPC}:${TITAN_HPC}/ref/ensembl114_pep/" \
-  ~/titan-test/ref/ensembl114_pep/ \
+  ./titan-test/ref/ensembl114_pep/ \
   --exclude "*.fa" --exclude "*.fa.gz"   # skip raw FASTAs; not needed at runtime
 
 # Catalog and study data (exclude raw RDS if too large; sync just what you need)
-rsync -av "${HPC}:${TITAN_HPC}/data/catalog.yaml" ~/titan-test/data/
-rsync -av "${HPC}:${TITAN_HPC}/data/rms_organoids/" ~/titan-test/data/rms_organoids/
+rsync -av "${HPC}:${TITAN_HPC}/data/catalog.yaml" ./titan-test/data/
+rsync -av "${HPC}:${TITAN_HPC}/data/[test_study]/" ./titan-test/data/rms_organoids/
 ```
 
 ---
@@ -163,30 +142,34 @@ rsync -av "${HPC}:${TITAN_HPC}/data/rms_organoids/" ~/titan-test/data/rms_organo
 
 | Host path | Container path | Contents | Access |
 |---|---|---|---|
-| `~/titan-test/ref` | `/srv/titan/ref` | Ensembl pep index + BLAST db + GENCODE CSV | `:ro` |
-| `~/titan-test/data` | `/srv/titan/data` | `catalog.yaml` + per-study RDS + peptide files | `:ro` |
+| `./titan-test/ref` | `/srv/titan/ref` | Ensembl pep index + BLAST db + GENCODE CSV | `:ro` |
+| `./titan-test/data` | `/srv/titan/data` | `catalog.yaml` + per-study RDS + peptide files | `:ro` |
 
 Both mounts are read-only (`:ro`). The app never writes to these directories.
 
 ---
 
-## Cloud Run Deployment (Overview)
+## Cloud Run Deployment 
 
-> Full Cloud Run setup instructions are pending IT confirmation of the VPN/Interconnect network restriction approach. This section provides the planned architecture.
-
-### Architecture
-
-```
-Browser (VPN-restricted) → Cloud Run service → GCS volumes
-                                              ├── gs://titan-ref/
-                                              └── gs://titan-data/
-```
-
-- The **Docker image** is pushed to Google Artifact Registry (private).
-- **Reference data** lives in a private GCS bucket (`gs://titan-ref/`) mounted as `/srv/titan/ref`.
-- **Study data** lives in a private GCS bucket (`gs://titan-data/`) mounted as `/srv/titan/data`.
-- **Network access** is restricted to institutional VPN users only (IAP or VPC connector — TBD with IT).
+- **Reference and study data** live in a private GCS bucket (`gs://titan-app-oatv/`) mounted as `/srv/titan`.
+- **Network access** is restricted to institutional VPN users only (IAP or VPC connector TBD with IT).
 - The **Cloud Run service** runs as a low-privilege service account with read-only access to the buckets.
+
+
+### Uploading ref data to a bucket
+
+```bash
+gcloud auth login
+gcloud config set project [project_name]
+
+gcloud storage rsync app/ref/ gs://titan-app-oatv/ref/ \
+  --recursive \
+  --exclude=".*\.fa$|.*\.fa\.gz$|.*_dedup\.fa$"
+
+# If new data is added to the catalog this command should be run again
+gcloud storage rsync app/data/ gs://titan-app-oatv/data/ --recursive
+
+```
 
 ### Planned deploy command
 
@@ -204,9 +187,6 @@ gcloud run deploy titan \
 ```
 
 ### Security requirements
-
-- The image must be in a **private** Artifact Registry repository (not Docker Hub).
-- The GCS buckets must be **private** (no public access, no allUsers IAM binding).
 - Study data (patient/cohort-derived RDS objects) must **never** appear in a public registry, public bucket, or public git history.
 
 ---

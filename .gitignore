@@ -5,6 +5,8 @@ app/data/*
 # ── Scripts (keep only prepare_*.R) ────────────────────────────────────────────
 scripts/*
 !scripts/prepare_*.R
+!scripts/reference_prep/*.R
+!scripts/catalog_prep/*.R
 
 # ── Design (design inspiration) ────────────────────────────────────────────
 design/*

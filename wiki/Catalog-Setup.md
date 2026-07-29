@@ -4,7 +4,7 @@ This page covers everything needed to make a study available in TITAN's Study Li
 
 ---
 
-## Step 1 — Write a Study Config YAML
+## Step 1: Write a Study Config YAML
 
 Create a file under `scripts/configs/<study_id>.yaml`. All path values must be absolute or resolvable from the working directory where you run the script.
 
@@ -86,7 +86,7 @@ output:
 
 ---
 
-## Step 2 — Run `prepare_titan_inputs.R`
+## Step 2: Run `prepare_titan_inputs.R`
 
 ```bash
 # On the HPC — submit via SLURM from the project root
@@ -113,7 +113,7 @@ On completion you will have `titan_rms_organoids.rds` (and `.csv`) in `output.di
 
 ---
 
-## Step 3 — Register the Study
+## Step 3: Register the Study
 
 ```bash
 Rscript scripts/catalog/register_study.R \
@@ -171,7 +171,7 @@ studies:
 
 ---
 
-## Step 4 — Bundle MS Peptides (Optional)
+## Step 4: Bundle MS Peptides (Optional)
 
 If a peptide file is placed at:
 ```
