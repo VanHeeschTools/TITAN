@@ -27,7 +27,10 @@ RUN Rscript -e "\
   iv('shinyWidgets', '0.9.1')"
 
 # Unpinned utilities (no version constraint from local env)
-RUN Rscript -e "install.packages(c('cowplot', 'data.table', 'jsonlite', 'yaml', 'processx', 'XML'), repos='https://cloud.r-project.org')"
+RUN Rscript -e "install.packages(c('cowplot', 'data.table', 'jsonlite', 'yaml', 'processx', 'XML', 'BiocManager', 'rBLAST'), repos='https://cloud.r-project.org')"
+
+# Bioconductor packages required by rBLAST
+RUN Rscript -e "BiocManager::install(c('Biostrings', 'IRanges'), ask=FALSE, update=FALSE)"
 
 COPY app/ /srv/titan/
 
