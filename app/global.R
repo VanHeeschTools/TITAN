@@ -450,24 +450,6 @@ off_tissue_risk_pediatric <- c(
 # SCORING SYSTEM — constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Previous scoring system (v1) - kept for reference:
-# WEIGHT_META_V1 <- list(
-#   list(id="w_pct_samples",  label="% samples (expr.)",       dir="+", balanced=18, pancancer=20, specific=15),
-#   list(id="w_expr_level",   label="Median expression level",  dir="+", balanced=12, pancancer=14, specific=10),
-#   list(id="w_tumor_spec",   label="Tumor specificity (GTEx)",dir="+", balanced=18, pancancer=10, specific=25),
-#   list(id="w_gtex_penalty", label="GTEx expression penalty",  dir="−", balanced=14, pancancer=8,  specific=20),
-#   list(id="w_tcga_cov",     label="TCGA tumor coverage",     dir="+", balanced=14, pancancer=18, specific=12),
-#   list(id="w_peri_penalty", label="Peritumor penalty",       dir="−", balanced=12, pancancer=10, specific=15),
-#   list(id="w_ribo_primary", label="Ribocrypt primary tissue", dir="−", balanced=14, pancancer=12, specific=18),
-#   list(id="w_ribo_cell",    label="Ribocrypt cell-line",      dir="+", balanced=7,  pancancer=8,  specific=5)
-# )
-# dim_pct_samples:  pmin(expr_pct/100,1)*w          [0,w]
-# dim_expr_level:   pmin(TPM/(max*0.5),1)*w          [0,w]
-# dim_tumor_spec:   case(only→1, enriched→0.5, else→0)*w [0,w]
-# dim_off_tissue:   off_tissue_risk: Safe=1, Acceptable=0.75, Borderline=0.5, Critical=0.25           [0,w]
-# dim_gtex_penalty: -pmin(GTEx/max,1)*w              [-w,0]
-# priority_score:   raw/total_w * 100                [0,100]
-
 # Each dimension exposes a signal in [0, 1].
 # Weight = +1 → high signal adds to score; −1 → high signal penalises; 0 → ignored.
 # hint describes what "high signal" means for each dimension.
@@ -475,7 +457,7 @@ WEIGHT_META <- list(
   list(id="w_pct_samples",  label="% expressed (RNA-seq)",    hint="many tumor samples express the ORF",             radar="Expr. %",    group="Tumor coverage",  pancancer=0.3, specific=0.3),
   list(id="w_pct_transl",   label="% translated (Ribo-seq)",  hint="many tumor samples translate the ORF",           radar="Transl. %",  group="Tumor coverage",  pancancer=0.3, specific=0.3),
   list(id="w_tumor_spec",   label="Tumor specificity (GTEx)", hint="GTEx: tumor-only=1, enriched=0.5, non-specific=0",                         radar="Specificity",group="Specificity",    pancancer=0.6, specific=1),
-  list(id="w_off_tissue",   label="Off-tissue risk (GTEx)",   hint="Safety tier: Safe=1, Acceptable=0.75, Borderline=0.5, Critical=0.25",         radar="Off-tissue", group="Safety",        pancancer=0.7, specific=0.8),
+  list(id="w_off_tissue",   label="Off-tissue risk (GTEx)",   hint="Safety tier: Safe=1, Acceptable=0.75, Borderline=0.5, Critical=0",         radar="Off-tissue", group="Safety",        pancancer=0.7, specific=0.8),
   list(id="w_gtex_penalty", label="GTEx expression level",    hint="expressed in normal tissues (GTEx)",             radar="GTEx",       group="Specificity",     pancancer=-0.6,specific=-1),
   list(id="w_tcga_cov",     label="TCGA tumor coverage",      hint="expressed in many TCGA tumor samples",           radar="TCGA T",     group="TCGA validation",   pancancer=0.6, specific=-0.3),
   list(id="w_peri_penalty", label="TCGA normal expression",   hint="expressed in peritumoral / normal TCGA samples", radar="TCGA N",     group="TCGA validation",      pancancer=-0.6,specific=-0.6),

@@ -44,6 +44,9 @@
   --clr-hover:          #E0F0F3;  /* teal tint — row hover, selected row      */
   --clr-hover-deep:     #C0E2E8;  /* deeper hover — selected+hover row        */
 
+  /* Footer height — must match the actual rendered footer (py-2 × 2 + 25px logo + 1px border) */
+  --footer-h: 42px;
+
   /* bslib spacer (unchanged) */
   --bslib-spacer: .5rem;
   --bslib-mb-spacer: var(--bslib-spacer, .5rem);
@@ -60,14 +63,20 @@
 body {
    font-family: 'Manrope', sans-serif; -webkit-font-smoothing: antialiased;
    font-size: 12px; line-height: 1.4; color: #212529;
+   min-height: 100vh;
 }
 
 .navbar-brand span { letter-spacing: .03em; }
 
 /* Bootstrap 5 applies margin-top:-1rem to all <footer> elements (a blockquote
-   citation holdover). Override it so the page footer doesn't overlap the content
-   area above it and appear on top of the candidate detail panel. */
-body > footer { margin-top: 0; }
+   citation holdover). bslib also marks footer as html-fill-item (flex-grow:1),
+   which causes it to stretch and overlap content. Override both. */
+footer {
+  margin-top: 0 !important;
+  flex: 0 0 auto !important;  /* never grow, never shrink — fixed height */
+  position: relative;
+  z-index: 10;
+}
 
 .btn {
     --bs-btn-padding-x: .5em;
@@ -700,7 +709,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   padding: 0 1.5rem;
 }
 .titan-data-wrap .titan-hero {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0rem;
 }
 
 /* ── Data tab hero ───────────────────────────────────────────────────────── */
@@ -709,13 +718,14 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 52px 32px 44px;
+  padding: 44px 24px 32px;
   margin-bottom: 24px;
   border-radius: .5rem;
 }
 
 .titan-hero-logo {
-  height: 84px;
+  height: 4rem;
+  min-height: 32px;
   width: auto;
   filter: drop-shadow(0 2px 10px rgba(40, 100, 110, .18));
   margin-bottom: 24px;
@@ -741,8 +751,8 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   color: #5D6D7E;
   margin: 0;
   font-weight: 400;
-  max-width: 42rem;
-  line-height: 1.65;
+  max-width: 54rem;
+  line-height: 1;
 }
 
 /* ── Ranked candidates card — fill viewport ──────────────────────────────── */
@@ -752,7 +762,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
  * Add card border/shadow clearance → use 185px.
  */
 .titan-priority-card {
-  height: calc(100vh - 185px);
+  height: calc(100vh - 185px - var(--footer-h));
   display: flex;
   flex-direction: column;
 }
@@ -1020,9 +1030,15 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   animation: titan-ready-in 0.25s ease-out;
 }
 
-/* ── Modal vertical margin ────────────────────────────────────────────────── */
+/* ── Modal ─────────────────────────────────────────────────────────────────── */
 @media (min-width: 576px) {
   .modal {
     --bs-modal-margin: 5%;
   }
+  .modal-dialog {
+    max-width: 85vw;
+  }
+}
+.modal-body {
+  padding: .5rem;
 }

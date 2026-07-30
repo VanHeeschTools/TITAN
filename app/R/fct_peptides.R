@@ -138,7 +138,7 @@ render_protein_seq_html <- function(seq, pep_list, pep_info = list()) {
       sprintf('<code class="seq-legend-badge" style="background:%s22;color:%s;border:1px solid %s55;">%s</code>',
               col, col, col, pep_list[[pi]])
     }, character(1)), collapse = " ")
-    sprintf('<div class="seq-legend"><span class="text-muted small me-2">%d MS peptide%s - hover to see MS data:</span>%s</div>',
+    sprintf('<div class="seq-legend"><span class="fw-semibold text-muted small me-2">%d MS peptide%s; hover to see MS data:</span>%s</div>',
             length(pep_list), if (length(pep_list) > 1L) "s" else "", badges)
   } else {
     '<p class="text-muted small mb-1">No MS peptides identified for this ORF.</p>'

@@ -110,8 +110,9 @@ ORF_SELECTIZE_RENDER_JS <- I(paste(c(
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Expression modal — shared by cross-reactivity and BLAST row-click handlers.
-# aln_text: NULL or character string of blastp -outfmt 0 output for BLAST hits.
-expr_modal <- function(gene_sym, gid, aln_text = NULL) {
+# aln_text: NULL or plain blastp -outfmt 0 text.
+# aln_html: pre-rendered HTML string (peptide positions bolded) — takes precedence.
+expr_modal <- function(gene_sym, gid, aln_text = NULL, aln_html = NULL) {
   # Header: gene name (H1, petrol) + Ensembl ID (mono, muted)
   modal_header <- div(
     class = "d-flex align-items-start justify-content-between mb-3",
@@ -130,7 +131,7 @@ expr_modal <- function(gene_sym, gid, aln_text = NULL) {
   )
 
   # Pairwise alignment card (BLAST only)
-  aln_card <- if (!is.null(aln_text) && nzchar(aln_text %||% ""))
+  aln_card <- if (!is.null(aln_html) || (!is.null(aln_text) && nzchar(aln_text %||% "")))
     card(
       fill = FALSE, class = "mb-3",
       card_header(class = "fw-semibold py-2",
@@ -145,7 +146,7 @@ expr_modal <- function(gene_sym, gid, aln_text = NULL) {
             "border-radius:4px; padding:.65rem .9rem;",
             "white-space:pre; margin:0; line-height:1.45; color:#2C3E50;"
           ),
-          aln_text
+          if (!is.null(aln_html)) HTML(aln_html) else aln_text
         )
       )
     )
@@ -324,17 +325,33 @@ ui <- page_navbar(
   window_title = "TITAN",
   lang         = "en",
   footer       = tags$footer(
-    class = "d-flex align-items-center gap-3 px-3 py-2",
+    class = "d-flex align-items-center justify-content-between px-3 py-2",
     style = "background:#f8f9fa;border-top:1px solid #dee2e6;font-size:12px;color:#6c757d;",
-    tags$img(src = "vanHeesch_logo_petrol.svg", height = "25px",
-             alt = "Van Heesch Lab", style = "opacity:0.85;"),
-    tags$a("vanheeschlab.com", href = "https://vanheeschlab.com", target = "_blank",
-           style = "color:#28646E;text-decoration:none;"),
-    tags$span("·", style = "color:#ccc;"),
-    tags$a("TITAN on GitHub", href = "https://github.com/VanHeeschTools/TITAN",
-           target = "_blank", style = "color:#28646E;text-decoration:none;"),
-    tags$span("·", style = "color:#ccc;"),
-    tags$span("2026")
+
+    # ── Left: GitHub link | year ──────────────────────────────────────────────
+    tags$div(
+      class = "d-flex align-items-center gap-2",
+      tags$a(
+        class = "d-flex align-items-center gap-1",
+        href = "https://github.com/VanHeeschTools/TITAN", target = "_blank",
+        style = "color:#28646E;text-decoration:none;",
+        tags$i(class = "fa-brands fa-github", style = "font-size:15px;"),
+        "TITAN on GitHub"
+      ),
+      tags$div(style = "width:1px;height:30px;background:#dee2e6;"),
+      tags$span("2026")
+    ),
+
+    # ── Right: logo | URL ────────────────────────────────────────────────────
+    tags$div(
+      class = "d-flex align-items-center gap-2",
+      tags$a("vanheeschlab.com", href = "https://vanheeschlab.com", target = "_blank",
+             style = "color:#28646E;text-decoration:none;"),
+      tags$div(style = "width:1px;height:30px;background:#dee2e6;"),
+      tags$img(src = "vanHeesch_logo_petrol.svg", height = "30px",
+               alt = "Van Heesch Lab", style = "opacity:0.85;")
+      
+    )
   ),
   header       = tags$head(
     tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
@@ -344,7 +361,17 @@ ui <- page_navbar(
     tags$link(rel = "stylesheet",
               href = "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"),
     tags$link(rel = "stylesheet", href = "titan.css"),
-    tags$script(src = "titan-sliders.js")
+    tags$script(src = "titan-sliders.js"),
+    tags$script(HTML("
+      Shiny.addCustomMessageHandler('titanDeselect', function(rid) {
+        if (!window.titanPrioSel) return;
+        window.titanPrioSel.delete(rid);
+        var cb = document.querySelector('#tbl_priority .titan-row-checkbox[data-rowid=\"' + rid + '\"]');
+        if (cb) cb.checked = false;
+        if (typeof titanSyncHeader === 'function') titanSyncHeader();
+        Shiny.setInputValue('prio_selected_rowids', Array.from(window.titanPrioSel), {priority: 'event'});
+      });
+    "))
   ),
 
   # ── Global sidebar ──────────────────────────────────────────────────────────
@@ -452,10 +479,57 @@ ui <- page_navbar(
       scoring_sidebar_ui()
     ),
 
-    # Package versions: About
+    # Report contents guide: Report
+    conditionalPanel(
+      condition = "input.main_nav === 'Report'",
+      card(
+        card_header(
+          class = "fw-semibold d-flex align-items-center gap-2",
+          icon("file-lines"), " Report contents"
+        ),
+        card_body(
+          class = "px-2 pt-1 pb-2 small",
+          tags$p(class = "text-muted mb-2 fst-italic",
+                 "One A3-landscape page per candidate, plus a methods page."),
+          tags$p(class = "fw-semibold mb-1", "Per-candidate page"),
+          tags$ul(
+            class = "mb-3 ps-3",
+            tags$li("Gene metadata, biotype badge, genomic coordinates"),
+            tags$li("Priority score, specificity & off-tissue risk"),
+            tags$li("Protein sequence with MS peptide matches highlighted"),
+            tags$li("9 key metric tiles (Expr %, Transl %, GTEx max TPM, TCGA %, …)"),
+            tags$li("Expression plots: target tumor · GTEx tissues · TCGA tumor vs normal"),
+            tags$li("Translation plots: target tumor · Ribocrypt primary · Ribocrypt cell-line")
+          ),
+          tags$p(class = "fw-semibold mb-1", "Methods & glossary page"),
+          tags$ul(
+            class = "mb-2 ps-3",
+            tags$li("ORF biotype definitions"),
+            tags$li("Off-tissue risk tier definitions"),
+            tags$li("Active scoring weights & filter settings"),
+            tags$li("Input data summary (sample counts, preparation date)")
+          ),
+          tags$hr(class = "my-2"),
+          tags$p(class = "text-muted mb-0",
+                 icon("print"), " Print tip: ", tags$b("File → Print"),
+                 " · A3 landscape · no margins · fit to page.")
+        )
+      )
+    ),
+
+    # R version + Package versions: About
     conditionalPanel(
       condition = "input.main_nav === 'About'",
       card(
+        card_header(tags$span(icon("r-project"), " R version"), class = "fw-semibold"),
+        card_body(
+          class = "px-2 pt-1 pb-2",
+          tags$p(class = "small mb-0",
+                 paste(R.version$major, R.version$minor, sep = "."))
+        )
+      ),
+      card(
+        class = "mt-2",
         card_header(tags$span(icon("box-open"), " Package versions"), class = "fw-semibold"),
         card_body(
           class = "px-2 pt-1 pb-2",
@@ -541,7 +615,7 @@ ui <- page_navbar(
         card(
           card_header(
             class = "d-flex align-items-center justify-content-between",
-            tags$span(icon("file-arrow-up"), " ORF candidates"),
+            tags$span("ORF candidates"),
             uiOutput("orf_status_badge", inline = TRUE)
           ),
           card_body(uiOutput("orf_source_ui"))
@@ -550,7 +624,7 @@ ui <- page_navbar(
         card(
           card_header(
             class = "d-flex align-items-center justify-content-between",
-            tags$span(icon("vials"), " MS peptides"),
+            tags$span("MS peptides"),
             uiOutput("ms_status_badge", inline = TRUE)
           ),
           card_body(uiOutput("ms_panel_ui"))
@@ -654,7 +728,6 @@ ui <- page_navbar(
         card_body(class = "p-0 titan-priority-body", DTOutput("tbl_priority"))
       ),
 
-      uiOutput("priority_detail_panel")
     )
   ),
 
@@ -701,7 +774,7 @@ ui <- page_navbar(
               class = "mt-2", fill = FALSE, height = "40vh",
               card_header(
                 class = "d-flex align-items-center justify-content-between",
-                tags$span(icon("shield-halved"), " Cross-reactivity"),
+                tags$span("Cross-reactivity"),
                 tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep")
               ),
               card_body(
@@ -717,7 +790,7 @@ ui <- page_navbar(
             fill = FALSE, height = "87vh",
             card_header(
               class = "d-flex align-items-center justify-content-between",
-              tags$span(icon("dna"), " BLAST homology"),
+              tags$span("BLAST homology"),
               tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep · ≥50% id, ≥30% cov")
             ),
             card_body(
@@ -743,7 +816,7 @@ ui <- page_navbar(
         NULL,
         card(
           card_body(
-            uiOutput("report_status_ui"),
+            uiOutput("report_candidates_ui"),
             tags$hr(class = "my-3"),
             tags$p(class = "fw-semibold mb-1", "Generate report"),
             tags$p(class = "text-muted small mb-1", "Plot values in:"),
@@ -771,11 +844,11 @@ ui <- page_navbar(
     "About", icon = icon("circle-question"),
     card(
       card_body(
-        tags$h4("TITAN — Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
+        tags$h4("TITAN: Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
         tags$p("TITAN integrates ribo-seq, RNA-seq, and external databases to prioritize",
                " non-canonical ORF-derived peptide candidates for cancer immunotherapy."),
         tags$p(
-          tags$a("View documentation ↗", href = "https://github.com/VanHeeschTools/TITAN/wiki",
+          tags$a("View full documentation ↗", href = "https://github.com/VanHeeschTools/TITAN/wiki",
                  target = "_blank", class = "small")
         ),
         tags$hr(),
@@ -791,7 +864,7 @@ ui <- page_navbar(
         tags$hr(),
         tags$h6("Scoring dimensions"),
         tags$ul(lapply(WEIGHT_META, function(m) {
-          tags$li(tags$b(m$label), " - ", m$hint, tags$span(class="text-muted small ms-1", paste0("(", m$group, ")")))
+          tags$li(tags$b(m$label), ": ", m$hint, tags$span(class="text-muted small ms-1", paste0("(", m$group, ")")))
         })),
         tags$hr(),
         tags$h6("ORF Detail (safety checks)"),
@@ -807,9 +880,9 @@ ui <- page_navbar(
         ),
         tags$p(class = "text-muted small mb-0",
                "Reference databases are built once via ",
-               tags$code("app/scripts/01_prep_ensembl_pep.sbatch"),
+               tags$code("scripts/reference_prep/01_prep_ensembl_pep.R"),
                " and ",
-               tags$code("03_prep_annotation.sbatch"),
+               tags$code("scripts/reference_prep/02_prep_annotation.R"),
                ". All checks run offline at app runtime — no internet access required."),
         tags$hr(),
         uiOutput("about_data_info")
@@ -837,6 +910,11 @@ server <- function(input, output, session) {
 
   # Pending ORF from Prioritization row-click (applied after gene cascade resolves)
   pending_orf_rv  <- reactiveVal(NULL)
+
+  # Counter incremented every time the user navigates to ORF Detail.  All four
+  # xreact/BLAST output renderers read this value so they unconditionally
+  # re-evaluate on tab entry regardless of Shiny's suspension bookkeeping.
+  orf_detail_nav_rv <- reactiveVal(0L)
 
   # BLAST fires 750 ms after the user stops changing candidates.
   # xreact observes input$detail_orf_id directly (fast, no debounce needed).
@@ -904,7 +982,7 @@ server <- function(input, output, session) {
     showNotification(
       tagList(icon("vials"), sprintf(" Loaded bundled peptides for %s (%s rows)",
                                     sid, formatC(nrow(dat), big.mark = ","))),
-      type = "message", duration = 5
+      type = "default", duration = 5
     )
   }, ignoreInit = TRUE)
 
@@ -2080,8 +2158,8 @@ server <- function(input, output, session) {
     filter(gene_prioritised_data(), .row_id == rid)
   })
 
-  output$priority_detail_panel <- renderUI({
-    req(nrow(selected_prio_row()) > 0)
+  observeEvent(prio_row_id(), {
+    req(!is.null(prio_row_id()))
     row <- selected_prio_row()
     w   <- current_weights()
 
@@ -2127,7 +2205,9 @@ server <- function(input, output, session) {
       row$matched_peptides
     )
 
-    div(class = "prio-detail-outer",
+    showModal(modalDialog(
+      title = NULL, footer = NULL, easyClose = FALSE, size = "xl", scrollable = TRUE,
+      div(class = "p-3",
       # ── Header ──────────────────────────────────────────────────────────────
       div(class = "d-flex justify-content-between align-items-start mb-2",
         div(class = "flex-grow-1 me-3",
@@ -2196,22 +2276,19 @@ server <- function(input, output, session) {
           card_body(dim_bars)
         )
       )
-    )
-  })
+      )  # end div.p-3
+    ))  # end modalDialog / showModal
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   observeEvent(input$close_prio_detail, {
     prio_row_id(NULL)
+    removeModal()
   })
 
-  # When the user navigates away from the Prioritization tab, close the detail
-  # panel. The close button lives inside a renderUI: if the tab is hidden while
-  # the panel is open, Shiny's resume-cycle Shiny.bindAll() pass can clear the
-  # button's input binding without re-registering it (because renderUI didn't
-  # re-execute), leaving the button stuck and non-functional on return.
-  # Resetting prio_row_id here guarantees the panel is empty when the tab is
-  # re-shown, so there is never a stale binding to worry about.
   observeEvent(input$main_nav, {
-    if (!isTRUE(input$main_nav == "Prioritization")) prio_row_id(NULL)
+    if (!isTRUE(input$main_nav == "Prioritization")) { prio_row_id(NULL); removeModal() }
+    if (isTRUE(input$main_nav == "ORF Detail"))
+      orf_detail_nav_rv(orf_detail_nav_rv() + 1L)
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   output$plot_radar <- renderPlotly({
@@ -3064,15 +3141,16 @@ server <- function(input, output, session) {
   }, ignoreInit = FALSE, ignoreNULL = TRUE)
 
   output$xreact_status_ui <- renderUI({
+    orf_detail_nav_rv()
     req(input$detail_orf_id)
     xr <- xreact_cache_rv()[[input$detail_orf_id]]
     if (is.null(xr))
-      return(div(class = "d-flex align-items-center gap-2 text-muted small mb-1",
+      return(div(class = "d-flex align-items-center gap-2 text-muted small me-2",
                  tags$span(class = "spinner-border spinner-border-sm"), " Checking…"))
     if ("Error" %in% names(xr))
-      return(tags$p(class = "text-danger small mb-1", icon("circle-xmark"), " ", xr$Error[1L]))
+      return(tags$p(class = "text-danger small me-2", icon("circle-xmark"), " ", xr$Error[1L]))
     if (nrow(xr) == 0L)
-      return(tags$p(class = "text-success small mb-1",
+      return(tags$p(class = "text-success small me-2",
                     icon("circle-check"), " No canonical matches (up to 2 mismatches)."))
     n_exact <- sum(xr$Mismatches == 0L, na.rm = TRUE)
     n_near1 <- sum(xr$Mismatches == 1L, na.rm = TRUE)
@@ -3083,18 +3161,22 @@ server <- function(input, output, session) {
       if (n_near2 > 0L) paste0(n_near2, " 2-mismatch gene(s)")
     )
     label <- paste(parts, collapse = ", ")
-    tags$p(class = "fw-semibold small text-warning mb-1",
-           icon("triangle-exclamation"), " ", label,
+    tags$p(class = "fw-semibold text-muted small me-2",
+           icon("shield-halved"), " ", label,
            ". Click a row to view expression.")
   })
 
   output$xreact_hits_dt <- DT::renderDT({
+    orf_detail_nav_rv()
     req(input$detail_orf_id)
     xr <- xreact_cache_rv()[[input$detail_orf_id]]
     if (is.null(xr) || "Error" %in% names(xr) || nrow(xr) == 0L) return(NULL)
-    xrs <- xr[order(xr$Mismatches, xr$Gene_sym), ]
+    xrs       <- xr[order(xr$Mismatches, xr$Gene_sym), ]
+    gtex_mat  <- tryCatch(gtex_tpm_rv(),  error = function(e) NULL)
+    gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
+    icons <- vapply(xrs$ENSG, function(e) risk_icon_html(gtex_ensg_risk(e, gtex_mat, gtex_meta)), character(1))
     DT::datatable(
-      data.frame(Gene       = xrs$Gene_sym,
+      data.frame(Gene       = paste0(xrs$Gene_sym, icons),
                  ENSG       = xrs$ENSG,
                  Mismatches = xrs$Mismatches,
                  Query      = xrs$Query_html,
@@ -3117,8 +3199,8 @@ server <- function(input, output, session) {
     gid      <- row$ENSG
     gene_sym <- row$Gene_sym
     if (is.na(gid) || !nzchar(gid)) {
-      showNotification(paste0("No ENSG ID for ", gene_sym, " — cannot load expression."),
-                       type = "message", duration = 4)
+      showNotification(paste0("No ENSG ID for ", gene_sym, "; cannot load expression."),
+                       type = "error", duration = 4)
       return()
     }
     modal_gene_rv(list(gid = gid, sym = gene_sym))
@@ -3145,7 +3227,7 @@ server <- function(input, output, session) {
     db <- REF_DB_ENSEMBL
     if (!file.exists(paste0(db, ".pdb")) && !file.exists(paste0(db, ".phr"))) {
       store_bl(data.frame(Error = paste0("BLAST database not found: ", db,
-                                         " — run scripts/01_prep_ensembl_pep.sbatch first.")))
+                                         " — run scripts/reference_prep/01_prep_ensembl_pep.R first.")))
       return()
     }
     if (!nzchar(Sys.which("blastp"))) {
@@ -3232,6 +3314,7 @@ server <- function(input, output, session) {
   }, ignoreInit = FALSE, ignoreNULL = TRUE)
 
   output$blast_status_ui <- renderUI({
+    orf_detail_nav_rv()
     req(input$detail_orf_id)
     entry <- blast_cache_rv()[[input$detail_orf_id]]
     if (is.null(entry))
@@ -3243,27 +3326,35 @@ server <- function(input, output, session) {
     if (nrow(br) == 0L)
       return(tags$p(class = "text-success small mb-1",
                     icon("circle-check"), " No homologous genes (≥50% identity, ≥30% coverage)."))
-    tags$p(class = "fw-semibold small text-warning mb-1", icon("dna"), " ",
+    tags$p(class = "fw-semibold text-muted small me-2", icon("dna"), " ",
            sprintf("%d homologous gene(s). Click a row to view expression and alignment.", nrow(br)))
   })
 
   output$blast_hits_dt <- DT::renderDT({
+    orf_detail_nav_rv()
     req(input$detail_orf_id)
     entry <- blast_cache_rv()[[input$detail_orf_id]]
     if (is.null(entry)) return(NULL)
     br <- entry$table
     if ("Error" %in% names(br) || nrow(br) == 0L) return(NULL)
+    gtex_mat  <- tryCatch(gtex_tpm_rv(),  error = function(e) NULL)
+    gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
+    icons <- vapply(br$ENSG, function(e) risk_icon_html(gtex_ensg_risk(e, gtex_mat, gtex_meta)), character(1))
     DT::datatable(
-      data.frame(Gene = br$Gene_sym, ENSG = br$ENSG, Identity = br$Identity,
-                 Coverage = br$Coverage, E_value = br$E_value,
-                 Description = br$Description, stringsAsFactors = FALSE),
+      data.frame(Gene = paste0(br$Gene_sym, icons), ENSG = br$ENSG,
+                 Identity = br$Identity, Coverage = br$Coverage,
+                 E_value = br$E_value, Description = br$Description,
+                 stringsAsFactors = FALSE),
+      escape    = FALSE,
       selection = "single", rownames = FALSE,
       options   = list(pageLength = 5, dom = "tp", scrollX = TRUE),
       class     = "compact stripe"
     )
   })
-  outputOptions(output, "blast_status_ui", suspendWhenHidden = FALSE)
-  outputOptions(output, "blast_hits_dt",   suspendWhenHidden = FALSE)
+  outputOptions(output, "xreact_status_ui", suspendWhenHidden = FALSE)
+  outputOptions(output, "xreact_hits_dt",   suspendWhenHidden = FALSE)
+  outputOptions(output, "blast_status_ui",  suspendWhenHidden = FALSE)
+  outputOptions(output, "blast_hits_dt",    suspendWhenHidden = FALSE)
 
   observeEvent(input$blast_hits_dt_rows_selected, {
     idx <- input$blast_hits_dt_rows_selected
@@ -3276,8 +3367,8 @@ server <- function(input, output, session) {
     gid      <- row$ENSG
     gene_sym <- row$Gene_sym
     if (is.na(gid) || !nzchar(gid %||% "")) {
-      showNotification(paste0("No ENSG ID for ", gene_sym, " — cannot load expression."),
-                       type = "message", duration = 4)
+      showNotification(paste0("No ENSG ID for ", gene_sym, "; cannot load expression."),
+                       type = "error", duration = 4)
       return()
     }
 
@@ -3301,25 +3392,110 @@ server <- function(input, output, session) {
     }, error = function(e) NULL)
     blast_aln_rv(aln_text)
 
+    # Bold query residues that are covered by MS peptide matches
+    peps <- tryCatch({
+      md  <- matched_data()
+      oid <- input$detail_orf_id
+      unique(md$matched_peptide[md$orf_id == oid])
+    }, error = function(e) character(0))
+    prot_seq <- tryCatch(detail_orf()$protein_seq, error = function(e) "")
+    aln_html <- highlight_blast_query(aln_text, peps, prot_seq)
+
     modal_gene_rv(list(gid = gid, sym = gene_sym))
-    showModal(expr_modal(gene_sym = gene_sym, gid = gid, aln_text = aln_text))
+    showModal(expr_modal(gene_sym = gene_sym, gid = gid, aln_html = aln_html))
   })
 
   # ── Report ───────────────────────────────────────────────────────────────────
-  output$report_status_ui <- renderUI({
+  output$report_candidates_ui <- renderUI({
     sel <- prio_selected_rowids()
     n   <- length(sel)
+
     if (!isTRUE(started_rv()))
       return(div(class = "alert alert-secondary py-2",
                  icon("circle-info"), " Run START on the Data tab first."))
+
     if (n == 0L)
-      return(div(class = "alert alert-warning py-2",
-                 icon("triangle-exclamation"),
-                 " No candidates selected. Use the checkboxes in the Prioritization table."))
-    div(class = "alert alert-success py-2",
-        icon("circle-check"),
-        sprintf(" %d candidate%s selected.", n, if (n == 1L) "" else "s"))
+      return(div(
+        class = "alert alert-warning py-2",
+        icon("triangle-exclamation"),
+        " No candidates selected — go to the ",
+        tags$b("Prioritization"), " tab and check the candidates to include in the report."
+      ))
+
+    gdata <- tryCatch(gene_prioritised_data(), error = function(e) NULL)
+    if (is.null(gdata))
+      return(div(class = "alert alert-secondary py-2", "Data not available."))
+
+    rows <- gdata[gdata$.row_id %in% sel, , drop = FALSE]
+    if (nrow(rows) == 0L) return(NULL)
+
+    trs <- lapply(seq_len(nrow(rows)), function(i) {
+      r    <- rows[i, ]
+      rid  <- r$.row_id
+      peps <- trimws(strsplit(as.character(r$matched_peptides), ",\\s*", perl = TRUE)[[1]])
+      pep_html <- paste(
+        vapply(peps, function(p)
+          sprintf('<span class="font-monospace">%s</span>', htmltools::htmlEscape(p)),
+          character(1)),
+        collapse = ", "
+      )
+      aa_len <- if (!is.na(r$protein_length) && is.numeric(r$protein_length))
+        as.character(as.integer(r$protein_length)) else "—"
+      tags$tr(
+        tags$td(class = "fw-semibold", style = "white-space:nowrap;", r$gene_name),
+        tags$td(class = "text-muted",  r$orf_biotype_single),
+        tags$td(class = "text-end text-muted font-monospace", style = "white-space:nowrap;",
+                aa_len),
+        tags$td(style = "word-break:break-all;", HTML(pep_html)),
+        tags$td(class = "text-center",
+          tags$button(
+            class = "btn btn-sm p-0 text-muted",
+            style = "line-height:1; font-size:14px;",
+            title = "Remove from report",
+            onclick = sprintf(
+              "Shiny.setInputValue('report_deselect_rid', %d, {priority: 'event'})", rid
+            ),
+            HTML("&times;")
+          )
+        )
+      )
+    })
+
+    tagList(
+      tags$div(
+        class = "mb-2",
+        tags$span(class = "fw-semibold",
+          tags$span(style = "color:#28646E;", n),
+          sprintf(" candidate%s selected for report", if (n == 1L) "" else "s")
+        )
+      ),
+      tags$div(
+        style = "max-height:300px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px;",
+        tags$table(
+          class = "table table-sm table-hover mb-0",
+          style = "font-size:12px;",
+          tags$thead(
+            class = "table-light sticky-top",
+            tags$tr(
+              tags$th("Gene"),
+              tags$th("Biotype"),
+              tags$th(class = "text-end", "Length (aa)"),
+              tags$th("Peptides"),
+              tags$th()
+            )
+          ),
+          tags$tbody(trs)
+        )
+      )
+    )
   })
+
+  observeEvent(input$report_deselect_rid, {
+    rid  <- as.integer(input$report_deselect_rid)
+    curr <- prio_selected_rowids()
+    prio_selected_rowids(curr[curr != rid])
+    session$sendCustomMessage("titanDeselect", rid)
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   output$dl_report <- downloadHandler(
     filename = function() paste0("titan_report_", format(Sys.time(), "%Y%m%d_%H%M"), ".html"),

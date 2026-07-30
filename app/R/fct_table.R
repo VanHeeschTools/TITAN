@@ -34,11 +34,11 @@ make_child_html <- function(orfs_df) {
   # Returns concatenated <tr class="titan-child-row"> strings, one per ORF.
   # orfs_df: non-best ORF rows from the group (already sorted desc by score),
   # with orf_biotype_single and matched_peptides restored from the grouping key.
-  # Cell layout must match prio_table_df() transmute column order (27 cols total):
-  # Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4) Location(5) Spec(6) Score(7)
-  # Transl%(8) TranslPPM(9) Expr%(10) ExprTPM(11) GTEx(12) TCGAT%(13) TCGATPM(14)
-  # TCGAN%(15) TCANPM(16) RCprim%(17) RCprimPPM(18) RCCL%(19) RCCLPPM(20)
-  # .biotype_sort(21) .spec_sort(22) .score_sort(23) .transl_sort(24) .expr_sort(25) .child_rows(26)
+  # Cell layout must match prio_table_df() transmute column order (28 cols total):
+  # Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4) Location(5) Spec(6) Off-tissue(7) Score(8)
+  # Transl%(9) TranslPPM(10) Expr%(11) ExprTPM(12) GTEx(13) TCGAT%(14) TCGATPM(15)
+  # TCGAN%(16) TCANPM(17) RCprim%(18) RCprimPPM(19) RCCL%(20) RCCLPPM(21)
+  # .biotype_sort(22) .spec_sort(23) .off_tissue_sort(24) .score_sort(25) .transl_sort(26) .expr_sort(27) .child_rows(28)
   r2 <- function(x) if (is.na(x) || !is.finite(x)) "&mdash;" else sprintf("%.2f", x)
   r1 <- function(x) if (is.na(x) || !is.finite(x)) "&mdash;" else sprintf("%.1f", x)
   r3 <- function(x) if (is.na(x) || !is.finite(x)) "&mdash;" else sprintf("%.3f", x)
@@ -57,6 +57,7 @@ make_child_html <- function(orfs_df) {
         '&ndash;', formatC(r$orf_end, format = "d", big.mark = ","),
         ' ', r$strand, ' ', r$start_codon, '</td>',
       '<td>', spec_badge_html(r$GTEX_tumor_only, r$GTEX_tumor_enriched), '</td>',
+      '<td>', off_tissue_risk_html(off_tissue_risk(r$GTEX_tumor_only, r$GTEX_tissues_q3_gt1)), '</td>',
       '<td>', score_bar_html(r$priority_score), '</td>',
       '<td>', pct_bar_html(r$target_translation_pct_samples, "#28646E"), '</td>',
       '<td style="font-size:12px">', r2(r$target_translation_median_PPM), '</td>',
