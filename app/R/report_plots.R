@@ -44,7 +44,7 @@
   gid <- row$gene_id_clean
   if (is.null(rna_mat) || !isTRUE(gid %in% rownames(rna_mat)))
     return(.rpt_void("Target tumor", "No RNA-seq data"))
-  tpm  <- apsc(rna_mat[gid, ])
+  tpm  <- apsc(mat_row(rna_mat, gid))
   cond <- if (!is.null(rna_meta)) {
     label_col <- if ("condition"   %in% colnames(rna_meta)) rna_meta$condition
                  else if ("tissue_type" %in% colnames(rna_meta)) rna_meta$tissue_type
@@ -54,9 +54,9 @@
   cond[is.na(cond)] <- "Tumor"
   df <- data.frame(g = factor(cond), y = tpm)
   p <- ggplot(df, aes(x = g, y = y)) +
-    geom_boxplot(fill = "#28646E22", color = "#28646E", width = 0.5,
+    geom_boxplot(fill = "#2F3D4622", color = "#2F3D46", width = 0.5,
                  outlier.shape = 1, outlier.size = 0.7) +
-    geom_jitter(width = 0.14, size = 0.6, color = "#28646E", alpha = 0.5) +
+    geom_jitter(width = 0.14, size = 0.6, color = "#2F3D46", alpha = 0.5) +
     labs(x = NULL, y = ylabel) + .rpt_theme()
   if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
   if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
@@ -67,7 +67,7 @@
   gid <- row$gene_id_clean
   if (is.null(gtex_mat) || !isTRUE(gid %in% rownames(gtex_mat)))
     return(.rpt_void("GTEx", "GTEx matrix not loaded"))
-  tpm     <- apsc(gtex_mat[gid, ])
+  tpm     <- apsc(mat_row(gtex_mat, gid))
   tis_raw <- gtex_meta$tissue_type[match(colnames(gtex_mat), gtex_meta$sample_id)]
   tis_raw[is.na(tis_raw)] <- "Unknown"
   tis_lab <- gsub("_", " ", tis_raw)
@@ -97,7 +97,7 @@
   gid <- row$gene_id_clean
   if (is.null(tcga_mat) || !isTRUE(gid %in% rownames(tcga_mat)))
     return(.rpt_void("TCGA", "TCGA matrix not loaded"))
-  tpm     <- apsc(tcga_mat[gid, ])
+  tpm     <- apsc(mat_row(tcga_mat, gid))
   grp_raw <- tcga_meta$group[match(colnames(tcga_mat), tcga_meta$sample_id)]
   grp_raw[is.na(grp_raw)] <- "Unknown"
   df       <- data.frame(grp = grp_raw, y = tpm)
@@ -134,7 +134,7 @@
   oid <- row$orf_id
   if (is.null(ribo_m) || !isTRUE(oid %in% rownames(ribo_m)))
     return(.rpt_void("Target tumor", "No ribo-seq data\nfor this ORF"))
-  ppm   <- apsc(as.numeric(ribo_m[oid, ]))
+  ppm   <- apsc(mat_row(ribo_m, oid))
   sids  <- colnames(ribo_m)
   cond  <- if (!is.null(ribo_sm) && "condition" %in% colnames(ribo_sm))
     ribo_sm$condition[match(sids, ribo_sm$sample_id)]
@@ -142,9 +142,9 @@
   cond[is.na(cond)] <- "Tumor"
   df <- data.frame(g = factor(cond), y = ppm)
   p <- ggplot(df, aes(x = g, y = y)) +
-    geom_boxplot(fill = "#28646E22", color = "#28646E", width = 0.5,
+    geom_boxplot(fill = "#2F3D4622", color = "#2F3D46", width = 0.5,
                  outlier.shape = 1, outlier.size = 0.7) +
-    geom_jitter(width = 0.14, size = 0.6, color = "#28646E", alpha = 0.5) +
+    geom_jitter(width = 0.14, size = 0.6, color = "#2F3D46", alpha = 0.5) +
     labs(x = NULL, y = ylabel) + .rpt_theme()
   if (!is.null(y_ref)) p <- p + geom_hline(yintercept = y_ref, linetype = "dashed", color = "#BBBBBB", linewidth = 0.35)
   if (!is.null(ylim))  p <- p + coord_cartesian(ylim = ylim)
@@ -156,7 +156,7 @@
   tgt_grp    <- if (grepl("Primary", grp_label, ignore.case = TRUE)) "Primary" else "Cell-line"
   if (is.null(rc_mat) || !isTRUE(oid %in% rownames(rc_mat)))
     return(.rpt_void(grp_label, "Ribocrypt matrix not loaded"))
-  rc_raw  <- as.numeric(rc_mat[oid, ])
+  rc_raw  <- mat_row(rc_mat, oid)
   sids    <- colnames(rc_mat)
   grp     <- rc_meta$group[match(sids, rc_meta$sample_id)]
   grp[is.na(grp)] <- "Unknown"

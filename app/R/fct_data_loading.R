@@ -29,19 +29,21 @@ validate_titan_rds <- function(obj) {
     stop("$orf_table is missing required columns: ", paste(missing_cols, collapse = ", "),
          call. = FALSE)
 
+  is_mat <- function(x) is.matrix(x) || inherits(x, "float32")
+
   n_orfs <- nrow(obj$orf_table)
-  if (!is.matrix(obj$ribo_ppm_samples) || nrow(obj$ribo_ppm_samples) != n_orfs)
+  if (!is_mat(obj$ribo_ppm_samples) || nrow(obj$ribo_ppm_samples) != n_orfs)
     stop(sprintf(
       "$ribo_ppm_samples must be a matrix with %d rows (orf_table has %d rows); got %s with %s rows",
       n_orfs, n_orfs,
-      class(obj$ribo_ppm_samples),
-      if (is.matrix(obj$ribo_ppm_samples)) nrow(obj$ribo_ppm_samples) else "N/A"),
+      paste(class(obj$ribo_ppm_samples), collapse = "/"),
+      if (is_mat(obj$ribo_ppm_samples)) nrow(obj$ribo_ppm_samples) else "N/A"),
       call. = FALSE)
 
-  if (!is.matrix(obj$ribocrypt_mat) || nrow(obj$ribocrypt_mat) != n_orfs)
+  if (!is_mat(obj$ribocrypt_mat) || nrow(obj$ribocrypt_mat) != n_orfs)
     stop(sprintf(
       "$ribocrypt_mat must be a matrix with %d rows; got %s rows",
-      n_orfs, if (is.matrix(obj$ribocrypt_mat)) nrow(obj$ribocrypt_mat) else "N/A"),
+      n_orfs, if (is_mat(obj$ribocrypt_mat)) nrow(obj$ribocrypt_mat) else "N/A"),
       call. = FALSE)
 
   invisible(TRUE)

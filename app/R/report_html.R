@@ -4,7 +4,7 @@
 .rpt_seq_html <- function(seq, peps) {
   # Simplified version of render_protein_seq_html with no Bootstrap/popover
   if (is.na(seq) || !nzchar(seq)) return("<em style='color:black'>No sequence available.</em>")
-  PEP_COLS <- c("#28646E", "#D4850A", "#8E44AD", "#C0392B", "#0097A7")
+  PEP_COLS <- c("#2F3D46", "#D4850A", "#8E44AD", "#C0392B", "#0097A7")
   peps     <- unique(peps[!is.na(peps) & nzchar(peps)])
   n        <- nchar(seq)
   chars    <- strsplit(seq, "")[[1]]
@@ -170,7 +170,7 @@
         <div style="font-size:9px;color:#555;word-break:break-all">%s</div>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:12pt">
-        <div style="font-size:20pt;font-weight:700;color:#28646E;line-height:1">%.1f</div>
+        <div style="font-size:20pt;font-weight:700;color:#2F3D46;line-height:1">%.1f</div>
         <div style="font-size:9px;color:black">/ 100</div>
       </div>
     </div>
@@ -280,7 +280,7 @@
     <div style="display:flex;gap:0.4in;margin-bottom:10pt">
       <div style="flex:1">
         <div style="font-size:9px;font-weight:700;color:#444;margin-bottom:6pt">
-          Scoring — Preset: <span style="color:#28646E">%s</span>
+          Scoring — Preset: <span style="color:#2F3D46">%s</span>
         </div>
         <table %s>
           <thead><tr><th %s>Dimension</th><th %s>Weight</th></tr></thead>
@@ -374,7 +374,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: #ccc; }
   print_btn <- '
 <div class="no-print" style="text-align:center;padding:16px;background:#f0f0f0;margin-bottom:0">
   <button onclick="window.print()"
-          style="background:#28646E;color:white;border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer">
+          style="background:#2F3D46;color:white;border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer">
     &#128438; Print / Save as PDF
   </button>
   <span style="margin-left:16px;font-size:12px;color:#555">

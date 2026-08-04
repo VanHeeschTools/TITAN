@@ -30,19 +30,19 @@
 
 /* ── House-style colour tokens ───────────────────────────────────────────── */
 :root {
-  --clr-primary:        #28646E;  /* teal — nav, headers, badges, key text   */
-  --clr-primary-dark:   #1D4D56;  /* deeper teal for strong emphasis          */
+  --clr-primary:        #2F3D46;  /* Midnight Slate — nav, headers, badges   */
+  --clr-primary-dark:   #1E2B33;  /* Deep Slate — strong emphasis             */
   --clr-success:        #21AE7F;  /* green — positive indicators, score high  */
   --clr-success-dark:   #1A8964;  /* dark green — badge text, dir-plus label  */
   --clr-success-bg:     #CCF5E7;  /* pale green — tumour-only badge fill      */
   --clr-warning:        #F3C677;  /* amber — mid scores, modified indicator   */
   --clr-danger:         #B33E3E;  /* red — low scores, penalty labels         */
-  --clr-bg-sidebar:     #F0F7F9;  /* lightest teal tint — sidebar background  */
-  --clr-bg-card:        #F0F7F9;  /* very light teal — card headers, panels   */
-  --clr-border:         #DAE9EC;  /* teal-tinted border — cards, tiles        */
-  --clr-border-subtle:  #C8D8DC;  /* slightly deeper border — sidebar, tables */
-  --clr-hover:          #E0F0F3;  /* teal tint — row hover, selected row      */
-  --clr-hover-deep:     #C0E2E8;  /* deeper hover — selected+hover row        */
+  --clr-bg-sidebar:     #EEF1F3;  /* lightest slate tint — sidebar background */
+  --clr-bg-card:        #EEF1F3;  /* very light slate — card headers, panels  */
+  --clr-border:         #C5CDD2;  /* slate-tinted border — cards, tiles       */
+  --clr-border-subtle:  #B3BEC5;  /* slightly deeper border — sidebar, tables */
+  --clr-hover:          #DDE4E8;  /* slate tint — row hover, selected row     */
+  --clr-hover-deep:     #C2CDD4;  /* deeper hover — selected+hover row        */
 
   /* Footer height — must match the actual rendered footer (py-2 × 2 + 25px logo + 1px border) */
   --footer-h: 42px;
@@ -54,9 +54,72 @@
   /* Bootstrap 5 token overrides */
   --bs-body-font-size:     1rem;
   --bs-btn-font-size:      .7rem;
-  --bs-dropdown-font-size: .6rem;
+  --bs-dropdown-font-size: .7rem;
   --bs-dropdown-spacer:    .1rem;
   --bs-btn-font-size:      .7rem;
+
+  /* Boostrap 5 link color overrides */
+  --bs-link-color: #28646E;
+  --bs-link-color-rgb: 40, 100, 110;
+  --bs-link-decoration: underline;
+  --bs-link-hover-color: #2F3D46;
+  --bs-link-hover-color-rgb: 47, 61, 70;
+  
+  /* ── 7-seed semantic palette (new, 2026-08) ────────────────────────────
+     To re-theme: edit ONLY the 7 --seed-* values below. Every --color-*
+     role token is derived from them via color-mix(), so containers/on-*
+     text pairs recompute automatically and stay WCAG-contrast-safe
+     (verified for the current seeds - re-check contrast if seeds change
+     drastically, esp. --seed-success / --seed-error, see note below).
+     This is a PARALLEL system to the legacy --clr-* tokens above - it does
+     NOT touch bslib's bs_theme()/Bootstrap primary/secondary/success/etc.
+     variables, so existing Bootstrap-class-driven elements (value_box
+     themes, default buttons/alerts) are unaffected by this block. */
+  --seed-surface-dark: #2F3D46;  /* charcoal-blue - dark surface (navbar)   */
+  --seed-primary:      #28646E;  /* stormy-teal   - brand color (logo)      */
+  --seed-secondary:    #FFBEFF;  /* mauve         - secondary/accent        */
+  --seed-tertiary:     #AADCFF;  /* icy-blue      - accents: value_box/minor details */
+  --seed-error:        #CC6060;  /* lobster-pink  - error                   */
+  --seed-success:      #41A395;  /* verdigris     - success                 */
+  --seed-warning:      #FFECC1;  /* light-apricot - warning                 */
+
+  /* Primary: seed usable directly as a filled base (white text 6.7:1). */
+  --color-primary:               var(--seed-primary);
+  --color-on-primary:            #FFFFFF;
+  --color-primary-container:     color-mix(in srgb, var(--seed-primary) 15%, white);
+  --color-on-primary-container:  color-mix(in srgb, var(--seed-primary) 55%, black);
+
+  /* Secondary/Tertiary/Warning: seeds are pastel already, so they ARE the
+     container as-is; base/on-container is a same-hue darker derivative
+     (35% seed / 65% black - verified ≥5.9:1 against the pastel container). */
+  --color-secondary-container:   var(--seed-secondary);
+  --color-secondary:             color-mix(in srgb, var(--seed-secondary) 35%, black);
+  --color-on-secondary:          #FFFFFF;
+  --color-on-secondary-container: var(--color-secondary);
+
+  --color-tertiary-container:    var(--seed-tertiary);
+  --color-tertiary:              color-mix(in srgb, var(--seed-tertiary) 35%, black);
+  --color-on-tertiary:           #FFFFFF;
+  --color-on-tertiary-container: var(--color-tertiary);
+
+  --color-warning-container:     var(--seed-warning);
+  --color-warning:               color-mix(in srgb, var(--seed-warning) 35%, black);
+  --color-on-warning:            #FFFFFF;
+  --color-on-warning-container:  var(--color-warning);
+
+  /* Success/Error: raw seeds FAIL WCAG AA with white text at normal text
+     size (verdigris 3.05:1, lobster-pink 3.88:1 - both need ≥4.5:1) - do
+     NOT use --seed-success/--seed-error as a filled badge/button background
+     with text. Reserve the raw seed for borders/icons/bars (≥3:1 is fine).
+     For labelled badges, use the light-container + dark-text pair below
+     (verified 6.8:1 / 7.8:1). */
+  --color-success-container:     color-mix(in srgb, var(--seed-success) 15%, white);
+  --color-on-success-container:  color-mix(in srgb, var(--seed-success) 55%, black);
+  --color-error-container:       color-mix(in srgb, var(--seed-error) 15%, white);
+  --color-on-error-container:    color-mix(in srgb, var(--seed-error) 55%, black);
+
+  --color-surface-dark:          var(--seed-surface-dark);
+  --color-on-surface-dark:       #FFFFFF;
 }
 
 /* ── Base changes ─────────────────────────────────────────────────────── */
@@ -70,30 +133,62 @@ body {
 
 /* Bootstrap 5 applies margin-top:-1rem to all <footer> elements (a blockquote
    citation holdover). bslib also marks footer as html-fill-item (flex-grow:1),
-   which causes it to stretch and overlap content. Override both. */
+   which causes it to stretch and overlap content.
+   Fix: collapse to natural height, pin to bottom of viewport so it never
+   floats between content items (mobile reflow), and push content clear of it. */
 footer {
   margin-top: 0 !important;
   flex: 0 0 auto !important;  /* never grow, never shrink — fixed height */
-  position: relative;
-  z-index: 10;
+  position: fixed !important;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+}
+
+/* Push scrollable content clear of the fixed footer — covers both cases:
+   (a) body scrolls (mobile natural flow)
+   (b) fill-layout inner panel scrolls (desktop bslib)
+   24px rather than the full 42px footer height: content already carries its own
+   bottom margin/padding, so full footer height over-pads visually. */
+body,
+.bslib-sidebar-layout > .main,
+.bslib-sidebar-layout > .bslib-sidebar-layout-main,
+.tab-content > .tab-pane {
+  padding-bottom: 24px !important;
 }
 
 .btn {
-    --bs-btn-padding-x: .5em;
-    --bs-btn-padding-y: .5em;
-    --bs-btn-font-family: ;
-    --bs-btn-font-size: .75rem;
+    --bs-btn-padding-x: .3em;
+    --bs-btn-padding-y: .3em;
+    --bs-btn-font-family: 'Manrope', sans-serif;
+    --bs-btn-font-size: .8rem;
     --bs-btn-font-weight: 500;
     --bs-btn-line-height: 1;
 }
 
+/* Low-opacity primary fill by default, solid primary + white text on hover -
+   used for the single "primary" action among a row of secondary buttons
+   (e.g. Export selection next to the outlined Export parameters/ranked). */
+.titan-btn-export-primary {
+  background: var(--color-primary-container) !important;
+  color: var(--color-on-primary-container) !important;
+  border: 1px solid var(--color-primary) !important;
+  transition: background-color .15s ease, color .15s ease;
+}
+.titan-btn-export-primary:hover,
+.titan-btn-export-primary:focus {
+  background: var(--color-primary) !important;
+  color: var(--color-on-primary) !important;
+}
+
 .dropdown-menu {
-    --bs-dropdown-font-size: .6rem;
+    --bs-dropdown-font-size: .7rem;
 }
 .form-control {
     font-size: .8rem;
     line-height: 1;
-    padding: 0rem .75rem;
+    padding: 0rem .6rem;
 }
 
 .progress, .progress-stacked {
@@ -130,6 +225,7 @@ footer {
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 .bslib-sidebar-layout > .sidebar {
   background: var(--clr-bg-sidebar) !important;
+  padding-bottom: var(--footer-h) !important;
   border-right: 1px solid var(--clr-border-subtle);
 }
 .sidebar .card { border: none; background: transparent; box-shadow: none; }
@@ -146,7 +242,7 @@ footer {
 
 /* Section label pattern (uppercase, spaced, small) */
 .titan-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -155,60 +251,71 @@ footer {
   display: block;
 }
 
-/* ── Value boxes — modern minimal (white + coloured top accent) ──────────── */
-.bslib-value-box {
+/* ── KPI stat boxes — plain custom markup, not bslib::value_box() ────────────
+   (see titan_kpi_box() in R/fct_table.R for why: value_box()'s showcase_layout
+   didn't reliably produce this layout on the installed bslib version, so this
+   is built as a plain flex row instead, immune to that.)
+   Icon chip on the left, label+value stacked to its right, both vertically
+   centered. Single muted-neutral left accent uniformly on every card (not a
+   different colour per card). */
+.titan-kpi-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 100%;
+  padding: 14px 16px;
+  background: var(--main-bg);
+  border: 1px solid var(--clr-border);
+  border-left: 4px solid #8A9CAA;  /* muted neutral - same tone as the label text, not near-black */
   border-radius: 8px;
-  border: 1px solid var(--clr-border) !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,.04) !important;
-  background: #fff !important;
-  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04);
 }
-
-/* Strip bslib / Bootstrap theme fills */
-.bslib-value-box.bg-primary,
-.bslib-value-box.bg-secondary,
-.bslib-value-box.bg-success,
-.bslib-value-box.bg-info,
-.bslib-value-box.bg-warning,
-.bslib-value-box.bg-danger   { background: #fff !important; color: inherit !important; }
-.bslib-value-box .card-body  { background: transparent !important; }
-
-/* 3 px coloured top accent — mirrors the preset button left-border motif */
-.bslib-value-box.bg-primary   { border-top: 3px solid var(--clr-primary)   !important; }
-.bslib-value-box.bg-secondary { border-top: 3px solid #8FA8AF              !important; }
-.bslib-value-box.bg-success   { border-top: 3px solid var(--clr-success)   !important; }
-.bslib-value-box.bg-info      { border-top: 3px solid #26A9C5              !important; }
-.bslib-value-box.bg-warning   { border-top: 3px solid var(--clr-warning)   !important; }
-.bslib-value-box.bg-danger    { border-top: 3px solid var(--clr-danger)    !important; }
-
-/* Typography */
-.bslib-value-box .value-box-title {
-  font-size: 9px !important;
+.titan-kpi-icon {
+  width: 3rem; height: 3rem; min-width: 2rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  background: var(--clr-bg-card);
+  border: 1px solid var(--clr-border);
+  font-size: 2rem;
+  color: var(--bs-link-color);
+  opacity: .75;
+}
+/* icon() renders Font Awesome as inline SVG - font-size doesn't size it, the
+   svg's own width/height do. Most FA icons have a non-square viewBox (e.g.
+   384x512) - forcing width AND height equally distorts/squashes them, so
+   constrain by height only and let width scale proportionally. */
+.titan-kpi-icon svg {
+  height: 22px !important;
+  width: auto !important;
+  max-width: 26px !important;
+  color: var(--clr-primary-dark);
+}
+.titan-kpi-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.titan-kpi-label {
+  font-size: 11px;
   font-weight: 700;
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Inter', 'IBM Plex Sans', sans-serif;
   text-transform: uppercase;
   letter-spacing: .08em;
   color: #8A9CAA;
-  margin: 0 0 3px;
 }
-.bslib-value-box .value-box-value {
-  font-size: 1.3rem !important;
+.titan-kpi-value {
+  font-size: 1.25rem;
   font-weight: 700;
+  font-family: 'Inter', 'IBM Plex Sans', sans-serif;
   color: var(--clr-primary-dark);
   line-height: 1.1;
 }
-
-/* Icon: ghost watermark — absolutely positioned so it never crowds the text */
-.bslib-value-box .card-body { position: relative !important; }
-.bslib-value-box .value-box-area { position: relative; z-index: 1; flex: 1 1 auto !important; min-width: 0; }
-.bslib-value-box .value-box-showcase {
-  position: absolute !important;
-  right: 8px; bottom: 6px;
-  width: auto !important; min-width: 0 !important;
-  pointer-events: none; z-index: 0;
-  color: var(--clr-primary);
-  opacity: .12;
-  font-size: 2.2rem;
+.titan-kpi-unit {
+  font-size: .8rem;
+  font-weight: 700;
+  color: #8A9CAA;
+  margin-left: 3px;
 }
 
 /* ── DT tables ───────────────────────────────────────────────────────────── */
@@ -275,7 +382,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .shiny-input-select { font-size: .75rem !important; padding: 2px 7px !important; height: auto !important; }
 .shiny-bound-input { font-size: .8rem !important; }
 
-.selectize-dropdown, .selectize-input, .selectize-input input { font-size: 10px !important; }
+.selectize-dropdown, .selectize-input, .selectize-input input { font-size: 11px !important; }
 
 /* Sidebar p and hr */
 .sidebar p  { margin-bottom: 1px !important;}
@@ -387,7 +494,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 }
 
 /* Override selectize's BS-primary background on active/selected options.         */
-/* Replaces the theme teal (#28646E) with --clr-hover (light teal tint), which   */
+/* Replaces the theme teal (var(--clr-primary)) with --clr-hover (light teal tint), which   */
 /* is the same token used for DT row hover — dark text remains readable as-is.   */
 .selectize-dropdown .option.active,
 .selectize-dropdown .option.selected,
@@ -500,7 +607,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 }
 .weight-hint {
   display: block;
-  font-size: 9px;
+  font-size: 10px;
   color: #8A9CAA;
   font-weight: 400;
   margin-top: 0;
@@ -718,7 +825,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 44px 24px 32px;
+  padding: 2%;
   margin-bottom: 24px;
   border-radius: .5rem;
 }
@@ -867,7 +974,7 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .titan-expand-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: 50%;
-  border: 1.5px solid #28646E; color: #28646E;
+  border: 1.5px solid var(--clr-primary); color: var(--clr-primary);
   font-size: 11px; font-weight: 700; cursor: pointer; line-height: 1;
   user-select: none; vertical-align: middle;
 }
@@ -883,49 +990,49 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .titan-pep-more,
 .titan-pep-less {
   cursor: pointer;
-  color: #28646E;
+  color: var(--clr-primary);
   font-size: 9px;
   font-family: 'Manrope', sans-serif;
   font-weight: 500;
   white-space: nowrap;
-  text-decoration: underline dotted rgba(40,100,110,.4);
+  text-decoration: underline dotted rgba(47,61,70,.4);
   text-underline-offset: 2px;
   margin-left: 3px;
   user-select: none;
 }
 .titan-pep-more:hover,
-.titan-pep-less:hover { color: #1D4D56; text-decoration-color: #1D4D56; }
+.titan-pep-less:hover { color: var(--clr-primary-dark); text-decoration-color: var(--clr-primary-dark); }
 .titan-pep-extra { word-break: break-all; }
 
 /* ── Priority table: injected child ORF rows ────────────────────────────── */
-.titan-child-row { background-color: rgba(40,100,110,.04) !important; }
-.titan-child-row:hover { background-color: rgba(40,100,110,.08) !important; }
+.titan-child-row { background-color: rgba(47,61,70,.04) !important; }
+.titan-child-row:hover { background-color: rgba(47,61,70,.08) !important; }
 
 /* ── Priority table: checkbox column ────────────────────────────────────── */
-.titan-row-checkbox { cursor: pointer; width: 13px; height: 13px; accent-color: #28646E; }
+.titan-row-checkbox { cursor: pointer; width: 13px; height: 13px; accent-color: var(--clr-primary); }
 .titan-sel-col  { width: 28px !important; text-align: center !important; padding: 4px 6px !important; }
 
 /* ── ORF expand button (inside Gene cell, same mechanism as peptide expand) ─ */
 .titan-orf-expand {
   margin-left: 4px;
-  color: #6B9FA7;
-  border-color: #6B9FA7;
+  color: #6B7E88;
+  border-color: #6B7E88;
 }
 
 /* ── Priority table: gene name link ─────────────────────────────────────── */
 .titan-gene-link {
   cursor: pointer;
-  color: #28646E;
-  text-decoration: underline dotted rgba(40,100,110,.4);
+  color: var(--clr-primary);
+  text-decoration: underline dotted rgba(47,61,70,.4);
   text-underline-offset: 2px;
   border-radius: 3px;
   padding: 1px 3px;
   margin: -1px -3px;
   transition: color .12s, background-color .4s ease-out;
 }
-.titan-gene-link:hover { color: #1D4D56; text-decoration-color: #1D4D56; }
+.titan-gene-link:hover { color: var(--clr-primary-dark); text-decoration-color: var(--clr-primary-dark); }
 .titan-gene-link.titan-gene-active {
-  background-color: #C2E0E5;
+  background-color: #BCC9D0;
   transition: color .12s;  /* suppress bg transition on press-in for snap feel */
 }
 
@@ -952,30 +1059,30 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   transition: color 0.15s;
 }
 .titan-upload-link:hover {
-  color: #28646E !important;
+  color: var(--clr-primary) !important;
   text-decoration: underline !important;
 }
 
 /* ── Library / Upload toggle buttons ────────────────────────────────────── */
 .titan-toggle-active {
-  background: #28646E !important;
+  background: var(--clr-primary) !important;
   color: #ffffff !important;
-  border: 1px solid #28646E !important;
+  border: 1px solid var(--clr-primary) !important;
 }
 .titan-toggle-active:hover, .titan-toggle-active:focus {
-  background: #1D4D56 !important;
-  border-color: #1D4D56 !important;
+  background: var(--clr-primary-dark) !important;
+  border-color: var(--clr-primary-dark) !important;
   color: #ffffff !important;
 }
 .titan-toggle-inactive {
-  background: rgba(40,100,110,0.09) !important;
-  color: #28646E !important;
-  border: 1px solid rgba(40,100,110,0.28) !important;
+  background: rgba(47,61,70,0.09) !important;
+  color: var(--clr-primary) !important;
+  border: 1px solid rgba(47,61,70,0.28) !important;
 }
 .titan-toggle-inactive:hover, .titan-toggle-inactive:focus {
-  background: rgba(40,100,110,0.17) !important;
-  border-color: rgba(40,100,110,0.45) !important;
-  color: #1D4D56 !important;
+  background: rgba(47,61,70,0.17) !important;
+  border-color: rgba(47,61,70,0.45) !important;
+  color: var(--clr-primary-dark) !important;
 }
 
 /* ── Card header status badges ───────────────────────────────────────────── */
@@ -990,9 +1097,9 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   display: inline-block;
 }
 .titan-status-ready {
-  background: rgba(40,100,110,0.12);
-  color: #1D4D56;
-  border: 1px solid rgba(40,100,110,0.28);
+  background: rgba(47,61,70,0.12);
+  color: var(--clr-primary-dark);
+  border: 1px solid rgba(47,61,70,0.28);
 }
 .titan-status-awaiting {
   background: #f0f0f1;
@@ -1002,8 +1109,8 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 
 /* ── Study library: active-loaded card ───────────────────────────────────── */
 .titan-study-active {
-  border-left: 3px solid #28646E !important;
-  background: rgba(40,100,110,0.07);
+  border-left: 3px solid var(--clr-primary) !important;
+  background: rgba(47,61,70,0.07);
   border-radius: 5px;
   padding: 10px 12px 10px 11px;
   margin-bottom: 6px;

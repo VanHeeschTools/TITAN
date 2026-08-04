@@ -678,17 +678,24 @@ if (!has_riboseq) {
 cat(sprintf("  ribocrypt_primary_PPM  : %s have data\n", pct(titan_table$ribocrypt_primary_median_PPM)))
 
 # ─── Save ────────────────────────────────────────────────────────────────────
+# Convert expression matrices to 32-bit float before saving.
+# Halves their in-memory footprint; the app coerces back to double at the point
+# of use (as.numeric / arithmetic), so no downstream code changes are needed.
+if (!requireNamespace("float", quietly = TRUE))
+  stop("Package 'float' is required. Install with: install.packages('float')")
+to_fl <- function(m) if (!is.null(m) && is.matrix(m)) float::fl(m) else m
+
 app_data <- list(
   orf_table             = titan_table,
-  ribo_ppm_samples      = ribo_ppm_mat,
-  rna_tpm_mat           = rna_tpm_sub,
+  ribo_ppm_samples      = to_fl(ribo_ppm_mat),
+  rna_tpm_mat           = to_fl(rna_tpm_sub),
   ribo_sample_meta      = ribo_sample_meta,
   rna_sample_meta       = rna_sample_meta,
-  gtex_tpm_mat          = gtex_tpm_sub,
+  gtex_tpm_mat          = to_fl(gtex_tpm_sub),
   gtex_sample_meta      = gtex_sample_meta,
-  tcga_tpm_mat          = tcga_tpm_sub,
+  tcga_tpm_mat          = to_fl(tcga_tpm_sub),
   tcga_sample_meta      = tcga_sample_meta,
-  ribocrypt_mat         = ribocrypt_mat,
+  ribocrypt_mat         = to_fl(ribocrypt_mat),
   ribocrypt_sample_meta = ribocrypt_sample_meta,
   ribocrypt_meta        = list(
     primary_samples   = sample_classes$primary,

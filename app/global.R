@@ -14,6 +14,7 @@ suppressPackageStartupMessages({
   library(jsonlite)
   library(shinyWidgets)
   library(yaml)
+  library(float)
 })
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
@@ -84,8 +85,37 @@ ensembl_pep_index <- local({
     return(NULL)
   }
   idx <- readRDS(f)
-  message(sprintf("Ensembl 114 pep: %d unique sequences loaded", length(idx$seqs)))
+  n_seqs <- length(idx$seqs)
+  # Drop the sequence strings from global scope — they are only needed for the
+  # in-memory exact-match cross-reactivity check. Load lazily on first use via
+  # ensembl_pep_seqs_lazy() to avoid holding ~200-400 MB at startup.
+  idx$seqs <- NULL
+  message(sprintf("Ensembl 114 pep: index loaded (%d unique sequences; AA strings deferred)", n_seqs))
   idx
+})
+
+# Convert any float32 matrices in a study data list to plain double.
+# Called right after readRDS() so the rest of the app never sees float32 objects.
+fl32_to_dbl <- function(dat) {
+  mat_names <- c("ribo_ppm_samples", "rna_tpm_mat", "gtex_tpm_mat",
+                 "tcga_tpm_mat", "ribocrypt_mat")
+  for (nm in mat_names)
+    if (!is.null(dat[[nm]]) && inherits(dat[[nm]], "float32"))
+      dat[[nm]] <- float::dbl(dat[[nm]])
+  dat
+}
+
+# Returns the $seqs named character vector, loading from disk on first call.
+ensembl_pep_seqs_lazy <- local({
+  cache <- NULL
+  function() {
+    if (!is.null(cache)) return(cache)
+    f <- "ref/ensembl114_pep/ensembl114_pep_index.rds"
+    if (!file.exists(f)) return(NULL)
+    message("Ensembl 114 pep: loading AA sequences for cross-reactivity check…")
+    cache <<- readRDS(f)$seqs
+    cache
+  }
 })
 
 # ── Ensembl gene annotation (offline lookup for BLAST hit annotation) ─────────
@@ -454,7 +484,7 @@ WEIGHT_META <- list(
 
 PRESETS <- list(
   "Cancer-specific" = list(label = "Strict tumor specificity, penalises normal tissue", color = "#FFBEFF"),
-  "Pan-cancer"      = list(label = "Broad coverage, tolerates enriched targets",        color = "#28646E")
+  "Pan-cancer"      = list(label = "Broad coverage, tolerates enriched targets",        color = "#2F3D46")
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -465,9 +495,9 @@ titan_theme <- bs_theme(
   version       = 5,
   bg            = "#f8f9fa",
   fg            = "#212529",
-  primary       = "#28646E",
+  primary       = "#2F3D46",
   secondary     = "#AADCFF",
-  success       = "#21AE7F",
+  success       = "#41A395",  # verdigris - must match --seed-success in www/titan.css
   warning       = "#F3C677",
   danger        = "#B33E3E",
   info          = "#FFBEFF",
@@ -476,7 +506,7 @@ titan_theme <- bs_theme(
   heading_font  = "IBM Plex Sans",
   code_font     = "IBM Plex Mono",
   "card-bg"                 = "#FFFFFF",
-  "navbar-light-bg"               = "#28646E",
+  "navbar-light-bg"               = "#2F3D46",
   "navbar-light-color"            = "#F0F7F9",
   "navbar-light-hover-color"      = "#FFFFFF",
   "navbar-light-active-color"     = "#FFFFFF",

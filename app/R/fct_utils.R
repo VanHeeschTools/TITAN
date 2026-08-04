@@ -1,12 +1,15 @@
 ## Formatting utility functions — no Shiny or reactive dependencies.
 
+# Single-row extraction from a matrix as a plain numeric vector.
+mat_row <- function(mat, i) as.numeric(mat[i, , drop = FALSE])
+
 # Compute off-tissue risk for a canonical gene from the loaded GTEx TPM matrix.
 # Returns "Safe", "Acceptable", "Borderline", "Critical", or "Unavailable".
 gtex_ensg_risk <- function(ensg, gtex_mat, gtex_meta, tpm_threshold = 1) {
   if (is.null(gtex_mat) || is.null(gtex_meta) || is.na(ensg) || !nzchar(ensg %||% ""))
     return("Unavailable")
   if (!ensg %in% rownames(gtex_mat)) return("Unavailable")
-  expr    <- as.numeric(gtex_mat[ensg, ])
+  expr    <- mat_row(gtex_mat, ensg)
   samples <- colnames(gtex_mat)
   tissue  <- gtex_meta$tissue_type[match(samples, gtex_meta$sample_id)]
   q3_tis  <- Filter(function(tis) {

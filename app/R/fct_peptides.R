@@ -1,21 +1,92 @@
 ## Peptide matching and protein-sequence display helpers.
 ## Depends on: stringr (loaded in global.R); html_attr_escape, build_pep_popover defined here.
 
-match_peptides <- function(peptides, orf_tbl) {
-  peptides  <- unique(trimws(peptides))
-  peptides  <- peptides[nchar(peptides) >= 8]
+## Exact substring matching via an integer-encoded k-mer seed index.
+## Building a character-keyed index (e.g. via split() on k-mer strings) does not
+## scale to tens of millions of k-mers - R's string hashing/sorting is the bottleneck.
+## Encoding each k-mer as an integer lets grouping use a fast integer radix sort instead.
+match_peptides <- function(peptides, orf_tbl, k = 6L) {
+  peptides <- unique(trimws(peptides))
+  peptides <- peptides[nchar(peptides) >= 8]
   if (length(peptides) == 0) return(NULL)
   canonical <- c("ORF-annotated", "NC-variant")
-  results <- lapply(peptides, function(pep) {
-    hits <- which(str_detect(orf_tbl$protein_seq, fixed(pep)))
-    if (length(hits) == 0) return(NULL)
-    matched <- orf_tbl[hits, , drop = FALSE] %>% mutate(matched_peptide = pep)
-    # Peptides matching a canonical biotype are not evidence for ncORFs
-    if (any(matched$orf_biotype_single %in% canonical))
-      matched <- matched[matched$orf_biotype_single %in% canonical, , drop = FALSE]
-    matched
-  })
-  bind_rows(results)
+
+  seqs <- orf_tbl$protein_seq
+  base <- 27L   # 26 letters + '*' (stop codon char, if present in protein_seq)
+
+  code_lookup <- integer(256)
+  code_lookup[utf8ToInt(paste0(LETTERS, collapse = ""))] <- 0:25
+  code_lookup[utf8ToInt("*")] <- 26L
+
+  # integer hash of every k-mer in a sequence via a Horner rolling scheme
+  seq_kmer_hashes <- function(s, k) {
+    codes <- code_lookup[utf8ToInt(s)]
+    n <- length(codes)
+    m <- n - k + 1L
+    if (m < 1L) return(integer(0))
+    h <- integer(m)
+    for (j in 0:(k - 1L)) h <- h * base + codes[(1L + j):(m + j)]
+    h
+  }
+
+  # ---- build index: integer k-mer hash -> ORF row indices (one-time cost per call) ----
+  per_orf  <- lapply(seq_along(seqs), function(i) seq_kmer_hashes(seqs[i], k))
+  n_kmers  <- lengths(per_orf)
+  all_hash <- unlist(per_orf, use.names = FALSE)
+  orf_rep  <- rep(seq_along(seqs), n_kmers)
+
+  ord         <- order(all_hash)          # integer radix sort - fast
+  hash_sorted <- all_hash[ord]
+  orf_sorted  <- orf_rep[ord]
+  grp_start_l <- c(TRUE, hash_sorted[-1] != hash_sorted[-length(hash_sorted)])
+  grp_id      <- cumsum(grp_start_l)
+  uniq_hash   <- hash_sorted[grp_start_l]
+  grp_end     <- cumsum(tabulate(grp_id))
+  grp_begin   <- c(1L, head(grp_end, -1) + 1L)
+
+  # ---- vectorised peptide-side seed hashing (no per-peptide R calls) ----
+  char_to_code <- function(chars) {
+    code <- match(chars, LETTERS) - 1L
+    code[chars == "*"] <- 26L
+    code
+  }
+  seed_hash <- integer(length(peptides))
+  for (j in seq_len(k)) seed_hash <- seed_hash * base + char_to_code(substr(peptides, j, j))
+
+  gi    <- match(seed_hash, uniq_hash)   # NA where seed never occurs anywhere
+  valid <- which(!is.na(gi))
+  if (length(valid) == 0) return(NULL)
+
+  g_valid <- gi[valid]
+  len     <- grp_end[g_valid] - grp_begin[g_valid] + 1L
+
+  # ---- build ALL (peptide, candidate ORF) pairs at once, instead of looping per peptide ----
+  pep_idx_rep <- rep(valid, len)
+  offsets     <- unlist(lapply(seq_along(valid), function(i)
+                   grp_begin[g_valid[i]]:grp_end[g_valid[i]]), use.names = FALSE)
+  cand_orf    <- orf_sorted[offsets]
+
+  # ---- ONE vectorised verification pass instead of one grepl() call per peptide ----
+  keep        <- stringi::stri_detect_fixed(seqs[cand_orf], peptides[pep_idx_rep])
+  pep_idx_rep <- pep_idx_rep[keep]
+  cand_orf    <- cand_orf[keep]
+  if (length(cand_orf) == 0) return(NULL)
+
+  # de-duplicate (peptide, orf) pairs that can arise from overlapping seed hits
+  combo_key   <- as.double(pep_idx_rep) * (length(seqs) + 1) + cand_orf
+  dedup       <- !duplicated(combo_key)
+  pep_idx_rep <- pep_idx_rep[dedup]
+  cand_orf    <- cand_orf[dedup]
+
+  # ---- ONE bulk subset instead of one per peptide ----
+  matched <- orf_tbl[cand_orf, , drop = FALSE]
+  matched$matched_peptide <- peptides[pep_idx_rep]
+
+  # ---- vectorised canonical-biotype filter (peptides matching a canonical
+  # biotype are not evidence for ncORFs) ----
+  is_canon      <- matched$orf_biotype_single %in% canonical
+  pep_has_canon <- ave(is_canon, matched$matched_peptide, FUN = any)
+  matched[!pep_has_canon | is_canon, , drop = FALSE]
 }
 
 pill_badge <- function(text, color = "primary") {
@@ -58,7 +129,7 @@ build_pep_popover <- function(rows_df) {
 # alignment rows, and Bootstrap popover tooltips showing MS data on hover.
 # pep_info: named list  peptide → data.frame of MS rows (for popover)
 render_protein_seq_html <- function(seq, pep_list, pep_info = list()) {
-  PEP_COLS <- c("#28646E", "#D4850A", "#8E44AD", "#C0392B", "#0097A7")
+  PEP_COLS <- c("#2F3D46", "#D4850A", "#8E44AD", "#C0392B", "#0097A7")
   pep_list <- unique(pep_list[!is.na(pep_list) & nzchar(pep_list)])
   n_chars  <- nchar(seq)
   seq_v    <- strsplit(seq, "")[[1]]

@@ -334,7 +334,7 @@ ui <- page_navbar(
       tags$a(
         class = "d-flex align-items-center gap-1",
         href = "https://github.com/VanHeeschTools/TITAN", target = "_blank",
-        style = "color:#28646E;text-decoration:none;",
+        style = "color:#2F3D46;text-decoration:none;",
         tags$i(class = "fa-brands fa-github", style = "font-size:15px;"),
         "TITAN on GitHub"
       ),
@@ -346,7 +346,7 @@ ui <- page_navbar(
     tags$div(
       class = "d-flex align-items-center gap-2",
       tags$a("vanheeschlab.com", href = "https://vanheeschlab.com", target = "_blank",
-             style = "color:#28646E;text-decoration:none;"),
+             style = "color:#2F3D46;text-decoration:none;"),
       tags$div(style = "width:1px;height:30px;background:#dee2e6;"),
       tags$img(src = "vanHeesch_logo_petrol.svg", height = "30px",
                alt = "Van Heesch Lab", style = "opacity:0.85;")
@@ -548,7 +548,8 @@ ui <- page_navbar(
             )
           )
         )
-      )
+      ),
+      uiOutput("about_data_info")
     ),
 
     # ORF selector: ORF Detail — two-step cascading gene → ORF
@@ -640,14 +641,10 @@ ui <- page_navbar(
     "Overview", icon = icon("eye"),
     layout_columns(
       col_widths = c(3, 3, 3, 3),
-      value_box("Total candidates",  textOutput("stat_total",        inline = TRUE),
-                showcase = icon("list"),   theme = "primary"),
-      value_box("Unique genes",      textOutput("stat_genes",        inline = TRUE),
-                showcase = icon("dna"),          theme = "secondary"),
-      value_box("Matched ORFs",      textOutput("stat_matched_orfs", inline = TRUE),
-                showcase = icon("check-double"),        theme = "success"),
-      value_box("MS peptide hits",   textOutput("stat_matches",      inline = TRUE),
-                showcase = icon("vials"), theme = "info")
+      titan_kpi_box("list",         "Total candidates",  "stat_total"),
+      titan_kpi_box("dna",          "Unique genes",      "stat_genes"),
+      titan_kpi_box("check-double", "Matched ORFs",      "stat_matched_orfs"),
+      titan_kpi_box("vials",        "MS peptide hits",   "stat_matches")
     ),
 
     layout_columns(
@@ -700,14 +697,10 @@ ui <- page_navbar(
 
       layout_columns(
         col_widths = c(3, 3, 3, 3),
-        value_box("Candidates ranked", textOutput("stat_prio_total",  inline = TRUE),
-                  showcase = icon("list-ol"),  theme = "primary"),
-        value_box("MS peptides",       textOutput("stat_prio_pep",    inline = TRUE),
-                  showcase = icon("vials"),    theme = "secondary"),
-        value_box("Top score",         textOutput("stat_prio_top",    inline = TRUE),
-                  showcase = icon("trophy"),   theme = "success"),
-        value_box("Active preset",     textOutput("stat_prio_preset", inline = TRUE),
-                  showcase = icon("sliders"),  theme = "info")
+        titan_kpi_box("sort", "Candidates ranked", "stat_prio_total"),
+        titan_kpi_box("vials",   "MS peptides",       "stat_prio_pep"),
+        titan_kpi_box("trophy",  "Top score",         "stat_prio_top"),
+        titan_kpi_box("sliders", "Active preset",     "stat_prio_preset")
       ),
 
       card(
@@ -722,7 +715,7 @@ ui <- page_navbar(
             downloadButton("dl_priority",  "Export ranked",
                            class = "btn-sm btn-outline-primary"),
             downloadButton("dl_selected",  "Export selection",
-                           class = "btn-sm btn-outline-success")
+                           class = "btn-sm titan-btn-export-primary")
           )
         ),
         card_body(class = "p-0 titan-priority-body", DTOutput("tbl_priority"))
@@ -766,12 +759,12 @@ ui <- page_navbar(
           # ── Left: protein seq (top) + cross-reactivity (bottom) ──────────────
           div(
             card(
-              fill = FALSE, height = "45vh",
+              fill = FALSE, height = "43vh",
               card_header("Protein sequence & peptide matches"),
               card_body(class = "p-2", style = "overflow-y: auto;", uiOutput("detail_protein_seq_ui"))
             ),
             card(
-              class = "mt-2", fill = FALSE, height = "40vh",
+              class = "mt-2", fill = FALSE, height = "37vh",
               card_header(
                 class = "d-flex align-items-center justify-content-between",
                 tags$span("Cross-reactivity"),
@@ -785,21 +778,35 @@ ui <- page_navbar(
             )
           ),
 
-          # ── Right: BLAST (full height) ────────────────────────────────────────
-          card(
-            fill = FALSE, height = "87vh",
-            card_header(
-              class = "d-flex align-items-center justify-content-between",
-              tags$span("BLAST homology"),
-              tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep · ≥50% id, ≥30% cov")
+          # ── Right: BLAST ────────────────────────────────────────
+          div(
+            card(
+              fill = FALSE, height = "43vh",
+              card_header(
+                class = "d-flex align-items-center justify-content-between",
+                tags$span("BLAST homology"),
+                tags$small(class = "text-muted fst-italic me-1", "Ensembl 114 pep · ≥50% id, ≥30% cov")
+              ),
+              card_body(
+                class = "p-2", style = "overflow-y: auto;",
+                uiOutput("blast_status_ui"),
+                DTOutput("blast_hits_dt")
+              )
             ),
-            card_body(
-              class = "p-2", style = "overflow-y: auto;",
-              uiOutput("blast_status_ui"),
-              DTOutput("blast_hits_dt")
+            # ── Right: Placeholder  ────────────────────────────────────────
+            card(
+              fill = FALSE, height = "37vh",
+              card_header(
+                class = "d-flex align-items-center justify-content-between",
+                tags$span("Ribo-seq coverage on target"),
+                tags$small(class = "text-muted fst-italic me-1", "Placeholder")
+              ),
+              card_body(
+                p(class = "text-muted small mb-1", "Placeholder")
+              )
             )
           )
-        )
+        ),
 
         )  # end gene-selected conditionalPanel
 
@@ -849,7 +856,7 @@ ui <- page_navbar(
                " non-canonical ORF-derived peptide candidates for cancer immunotherapy."),
         tags$p(
           tags$a("View full documentation ↗", href = "https://github.com/VanHeeschTools/TITAN/wiki",
-                 target = "_blank", class = "small")
+                 target = "_blank", class = "medium")
         ),
         tags$hr(),
         tags$h6("Data sources"),
@@ -883,9 +890,7 @@ ui <- page_navbar(
                tags$code("scripts/reference_prep/01_prep_ensembl_pep.R"),
                " and ",
                tags$code("scripts/reference_prep/02_prep_annotation.R"),
-               ". All checks run offline at app runtime — no internet access required."),
-        tags$hr(),
-        uiOutput("about_data_info")
+               ". All checks run offline at app runtime — no internet access required.")
       )
     )
   )
@@ -1219,7 +1224,9 @@ server <- function(input, output, session) {
         }
         if (is.null(dat$study_id)) dat$study_id <- sid
         setProgress(1)
+        dat <- fl32_to_dbl(dat)
         app_data_rv(dat)
+        gc(verbose = FALSE)
       })
     }, ignoreInit = TRUE)
   })
@@ -1242,7 +1249,9 @@ server <- function(input, output, session) {
         return()
       }
       setProgress(1)
+      dat <- fl32_to_dbl(dat)
       app_data_rv(dat)
+      gc(verbose = FALSE)
     })
   })
 
@@ -1348,7 +1357,16 @@ server <- function(input, output, session) {
 
   observeEvent(input$start_titan, {
     req(ms_peptides(), orf_table_rv(), ms_meta())
-    withProgress(message = "Matching peptides to ORFs…", value = 0.1, {
+    # Rough heuristic from benchmarking match_peptides(): ~10s fixed cost to build
+    # the k-mer index, plus ~1.7ms per peptide for lookup/verification - run twice
+    # (in-house + Gencode proteomes), so double the peptide-scaling term.
+    n_pep   <- length(unique(trimws(ms_peptides())))
+    est_sec <- ceiling(10 + n_pep * 0.0017 * 2)
+    est_txt <- if (est_sec < 60) sprintf("~%ds", est_sec) else sprintf("~%.1f min", est_sec / 60)
+    withProgress(
+      message = "Matching peptides to ORFs…",
+      detail  = sprintf("%s peptides — expected time %s", formatC(n_pep, big.mark = ","), est_txt),
+      value = 0.1, {
       hits <- match_peptides(ms_peptides(), orf_table_rv())
       # For peptides that match an ORF-annotated (canonical) entry AND non-canonical
       # entries, discard the non-canonical hits — they are canonical peptide evidence.
@@ -1585,14 +1603,19 @@ server <- function(input, output, session) {
     ribo_mat <- ribo_ppm_rv()
     in_mat      <- df$orf_id %in% rownames(ribo_mat)
     n_above_ppm <- integer(nrow(df))
-    if (any(in_mat))
-      n_above_ppm[in_mat] <- as.integer(rowSums(
-        ribo_mat[df$orf_id[in_mat], , drop = FALSE] >= ppm_thr, na.rm = TRUE
-      ))
+    if (any(in_mat)) {
+      # float32 matrices (see prepare_titan_inputs.R to_fl()) mishandle direct
+      # comparison/subsetting (same root cause as the gtex_mat [.float32 fix
+      # earlier) - convert to a plain double matrix before comparing.
+      ribo_sub <- ribo_mat[df$orf_id[in_mat], , drop = FALSE]
+      if (inherits(ribo_sub, "float32")) ribo_sub <- float::dbl(ribo_sub)
+      n_above_ppm[in_mat] <- as.integer(rowSums(ribo_sub >= ppm_thr, na.rm = TRUE))
+    }
     df <- df[n_above_ppm >= ppm_n, ]
 
     rna_mat <- rna_tpm_rv()
     if (!is.null(rna_mat)) {
+      if (inherits(rna_mat, "float32")) rna_mat <- float::dbl(rna_mat)
       gene_n     <- rowSums(rna_mat >= tpm_thr, na.rm = TRUE)
       pass_genes <- names(gene_n)[gene_n >= tpm_n]
       df <- filter(df, gene_id_clean %in% pass_genes)
@@ -1647,55 +1670,93 @@ server <- function(input, output, session) {
   })
 
   # ── Scored/ranked data ──────────────────────────────────────────────────────
+  # bindCache: toggling a filter back to a state already seen this session (e.g.
+  # re-checking a biotype) hits the cache instead of re-running the group_by/
+  # summarise/across pipeline below from scratch. Keyed on everything the body
+  # reads (matched_data() + current_weights()) so a cache hit is only ever
+  # returned when both are unchanged from a prior evaluation.
   prioritised_data <- reactive({
     req(matched_data())
     # Collapse to one row per ORF - all scoring columns are ORF-level (same for
     # all peptides sharing an orf_id), so first() is safe for those columns.
-    per_orf <- matched_data() %>%
-      group_by(orf_id) %>%
-      summarise(
-        across(c(gene_name, orf_biotype_single, chr, orf_start, orf_end, strand,
-                 protein_length, start_codon, gene_id, gene_biotype, gene_id_clean,
-                 starts_with("target_"), starts_with("GTEX_"), starts_with("TCGA_"),
-                 starts_with("ribocrypt_")),
-               first),
-        n_peptides       = n_distinct(matched_peptide),
-        matched_peptides = paste(sort(unique(matched_peptide)), collapse = ", "),
-        .groups = "drop"
-      )
+    #
+    # data.table instead of dplyr group_by/summarise/across here specifically:
+    # microbenchmarked on the real ~137k-row matched_data (rms_organoids,
+    # profiling/datatable_microbenchmark.R) - dplyr took 27.9s/rep vs 6.4s/rep
+    # for data.table, verified output-identical. bindCache (above) only helps
+    # when REVISITING a filter state already seen this session; the first
+    # encounter of a large state (e.g. straight after pressing START, when all
+    # biotypes are selected - the largest possible working set) always pays
+    # this cost in full, so cutting the cost itself matters independently of
+    # caching. Uses data.table::-prefixed calls only (no library(data.table))
+    # to avoid data.table::first()/between() masking dplyr's versions of the
+    # same names used elsewhere in this file.
+    dt <- data.table::as.data.table(matched_data())
+    first_cols <- c("gene_name", "orf_biotype_single", "chr", "orf_start", "orf_end", "strand",
+                     "protein_length", "start_codon", "gene_id", "gene_biotype", "gene_id_clean")
+    first_cols <- c(first_cols, grep("^target_|^GTEX_|^TCGA_|^ribocrypt_", names(dt), value = TRUE))
+    per_orf <- dt[, c(
+      lapply(.SD, data.table::first),
+      list(n_peptides       = data.table::uniqueN(matched_peptide),
+           matched_peptides = paste(sort(unique(matched_peptide)), collapse = ", "))
+    ), by = orf_id, .SDcols = first_cols]
+    per_orf <- as.data.frame(per_orf)
+
     score_candidates(per_orf, current_weights()) %>%
       arrange(desc(priority_score)) %>%
       mutate(.row_id = row_number())
-  })
+  }) %>% bindCache(matched_data(), current_weights())
 
   gene_prioritised_data <- reactive({
     req(prioritised_data())
 
     # Group by (gene, biotype, exact peptide set): ORFs that are identified by the
     # same peptides collapse into one row; different peptide evidence = separate rows.
-    # prioritised_data() is already score-sorted desc, so group_orfs[1] = best ORF.
-    # group_modify strips grouping columns from group_orfs; they come back via key.
-    per_group <- prioritised_data() %>%
-      group_by(gene_id, orf_biotype_single, matched_peptides) %>%
-      group_modify(function(group_orfs, key) {
-        n_grp <- nrow(group_orfs)
-        child_html <- if (n_grp > 1L) {
-          child_orfs <- group_orfs[-1L, , drop = FALSE] %>%
-            mutate(orf_biotype_single = key$orf_biotype_single,
-                   matched_peptides   = key$matched_peptides)
-          make_child_html(child_orfs)
-        } else ""
-        group_orfs[1L, , drop = FALSE] %>%
-          mutate(.child_html = child_html,
-                 n_orfs      = n_grp,
-                 orf_ids     = paste(group_orfs$orf_id, collapse = ", "))
-      }) %>%
-      ungroup()
+    # prioritised_data() is already score-sorted desc, so the first row per group
+    # (by original row order) is the best ORF.
+    #
+    # group_modify() previously called a custom R closure ONCE PER GROUP - with
+    # thousands of matched ORFs (mostly singleton groups needing no child rows at
+    # all) that's the same per-group R-call overhead we fixed in match_peptides().
+    # Instead: compute group-level aggregates (n_orfs, orf_ids) with a single
+    # vectorised summarise(), grab the best row per group with a vectorised
+    # filter(), and only pay the make_child_html() cost for the minority of
+    # groups that actually have >1 ORF.
+    # data.table for the same reason as prioritised_data() above (microbenchmarked
+    # 3.5x faster, verified output-identical - profiling/datatable_microbenchmark.R).
+    # dt[, .SD[1], by=...] / .SD[-1] preserve within-group row order (the order
+    # rows arrived in, i.e. prioritised_data()'s desc-priority_score sort), which
+    # is what makes "first row per group" = "best-scoring ORF in the group" -
+    # exactly the same ordering assumption the original dplyr code relied on.
+    dt <- data.table::as.data.table(prioritised_data())
+    grp_cols <- c("gene_id", "orf_biotype_single", "matched_peptides")
+
+    grp_info <- dt[, list(n_orfs = .N, orf_ids = paste(orf_id, collapse = ", ")), by = grp_cols]
+    best     <- dt[, .SD[1], by = grp_cols]
+
+    per_group <- merge(as.data.frame(best), as.data.frame(grp_info), by = grp_cols, sort = FALSE)
+    per_group$.child_html <- ""
+
+    multi_idx <- which(per_group$n_orfs > 1L)
+    if (length(multi_idx) > 0L) {
+      extra <- as.data.frame(dt[, .SD[-1], by = grp_cols])
+      # make_child_rows_html() runs ONCE, vectorised, over every child row
+      # across every multi-ORF group at once - measured 23s -> a small
+      # fraction of a second on the real ~10k-child-row case (previously it
+      # ran per-group via an internal per-row loop; see fct_table.R).
+      extra$.row_html <- make_child_rows_html(extra)
+      extra_key <- paste(extra$gene_id, extra$orf_biotype_single, extra$matched_peptides, sep = "\r")
+      extra_html_ls <- split(extra$.row_html, extra_key)
+      best_key <- paste(per_group$gene_id, per_group$orf_biotype_single, per_group$matched_peptides, sep = "\r")
+      per_group$.child_html[multi_idx] <- vapply(extra_html_ls[best_key[multi_idx]], function(v) {
+        if (is.null(v)) "" else paste(v, collapse = "")
+      }, character(1))
+    }
 
     per_group %>%
       arrange(desc(priority_score)) %>%
       mutate(.row_id = row_number())
-  })
+  }) %>% bindCache(prioritised_data())
 
   # ── Overview stats ───────────────────────────────────────────────────────────
   output$stat_total <- renderText(formatC(nrow(filtered_data()), big.mark = ","))
@@ -1875,7 +1936,7 @@ server <- function(input, output, session) {
       for (bio in matched_bios) {
         d_bio <- filter(d_yes, orf_biotype_single == bio)
         if (nrow(d_bio) < 3) next
-        col <- coalesce(BIOTYPE_COLORS[bio], "#28646E")
+        col <- coalesce(BIOTYPE_COLORS[bio], "#2F3D46")
         p <- p %>% add_trace(
           type = "violin", x = d_bio$orf_biotype_single, y = d_bio$log_ppm,
           name = bio, legendgroup = "matched",
@@ -1927,7 +1988,6 @@ server <- function(input, output, session) {
   prio_table_df <- reactive({
     req(gene_prioritised_data())
     gpd <- gene_prioritised_data()
-    tq  <- if ("GTEX_tissues_q3_gt1" %in% names(gpd)) gpd$GTEX_tissues_q3_gt1 else NA_character_
     df <- gpd %>%
       mutate(
         spec_category = case_when(
@@ -1936,15 +1996,19 @@ server <- function(input, output, session) {
           GTEX_tumor_enriched %in% TRUE                       ~ "Tumor-enriched",
           TRUE                                                ~ "Non-specific"
         ),
-        score_html   = vapply(priority_score, score_bar_html, character(1)),
-        spec_html    = mapply(spec_badge_html, GTEX_tumor_only, GTEX_tumor_enriched),
-        biotype_html        = vapply(orf_biotype_single, biotype_badge_html, character(1)),
-        off_tissue_label    = mapply(off_tissue_risk, GTEX_tumor_only, tq),
-        off_tissue_html     = vapply(off_tissue_label, off_tissue_risk_html, character(1)),
-        transl_html  = vapply(target_translation_pct_samples,
-                              function(x) pct_bar_html(x, "#28646E"), character(1)),
-        expr_html    = vapply(target_expression_pct_samples,
-                              function(x) pct_bar_html(x, "#7EB8BF"), character(1))
+        # score_bar_html/spec_badge_html/biotype_badge_html/off_tissue_risk_html/
+        # pct_bar_html are vectorised - called once over the whole column instead
+        # of via vapply/mapply per row (matters at thousands of matched ORFs).
+        # off_tissue_label itself is carried through from score_candidates()
+        # (fct_scoring.R) rather than recomputed here - off_tissue_risk() is a
+        # genuine per-row loop (parses a ragged "tissue|tissue" string), so
+        # it's computed once at ORF level instead of once per reactive here.
+        score_html   = score_bar_html(priority_score),
+        spec_html    = spec_badge_html(GTEX_tumor_only, GTEX_tumor_enriched),
+        biotype_html        = biotype_badge_html(orf_biotype_single),
+        off_tissue_html     = off_tissue_risk_html(off_tissue_label),
+        transl_html  = pct_bar_html(target_translation_pct_samples, "#2F3D46"),
+        expr_html    = pct_bar_html(target_expression_pct_samples, "#7EB8BF")
       )
     sel_spec <- input$prio_spec_filter %||% c("Tumor-only", "Tumor-enriched", "Non-specific")
     sel_risk <- input$prio_risk_filter %||% c("Safe", "Acceptable", "Borderline", "Critical", "Unavailable")
@@ -2293,8 +2357,8 @@ server <- function(input, output, session) {
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   output$plot_radar <- renderPlotly({
-    req(nrow(selected_prio_row()) > 0)
     row <- selected_prio_row()
+    req(nrow(row) > 0)
     w   <- current_weights()
 
     radar_labels <- sapply(WEIGHT_META, `[[`, "radar")
@@ -2333,8 +2397,8 @@ server <- function(input, output, session) {
 
   # ── Expression card: Target / GTEx / TCGA ─────────────────────────────────
   output$plot_prio_expr <- renderPlotly({
-    req(nrow(selected_prio_row()) > 0)
     row       <- selected_prio_row()
+    req(nrow(row) > 0)
     log_scale <- isTRUE((input$prio_expr_scale %||% "log") == "log")
     y_label   <- if (log_scale) "log(TPM+1)" else "TPM"
     y_ref     <- if (log_scale) log(2) else 1   # threshold at TPM = 1
@@ -2365,7 +2429,7 @@ server <- function(input, output, session) {
     rna_meta <- tryCatch(rna_meta_rv(), error = function(e) NULL)
 
     if (!is.null(rna_mat) && isTRUE(gid %in% rownames(rna_mat))) {
-      tpm_raw <- as.numeric(rna_mat[gid, ])
+      tpm_raw <- mat_row(rna_mat, gid)
       grp_col <- if (!is.null(rna_meta)) {
         label_col <- if ("condition"   %in% colnames(rna_meta)) rna_meta$condition
                      else if ("tissue_type" %in% colnames(rna_meta)) rna_meta$tissue_type
@@ -2374,7 +2438,7 @@ server <- function(input, output, session) {
       } else rep("Tumor", length(tpm_raw))
       grp_col[is.na(grp_col)] <- "Tumor"
       df_t <- data.frame(g = grp_col, y = apply_scale(tpm_raw))
-      p1 <- do.call(plot_ly, c(list(df_t, x = ~g, y = ~y), make_box_args("#28646E"))) %>%
+      p1 <- do.call(plot_ly, c(list(df_t, x = ~g, y = ~y), make_box_args("#2F3D46"))) %>%
         layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
                yaxis = list(title = y_label))
     } else {
@@ -2387,7 +2451,7 @@ server <- function(input, output, session) {
     gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
 
     if (!is.null(gtex_mat) && isTRUE(gid %in% rownames(gtex_mat))) {
-      gtex_raw   <- as.numeric(gtex_mat[gid, ])
+      gtex_raw   <- mat_row(gtex_mat, gid)
       tissue_raw <- gtex_meta$tissue_type[match(colnames(gtex_mat), gtex_meta$sample_id)]
       tissue_raw[is.na(tissue_raw)] <- "Unknown"
       tissue     <- gsub("_", " ", tissue_raw)
@@ -2428,7 +2492,7 @@ server <- function(input, output, session) {
     tcga_meta <- tryCatch(tcga_meta_rv(), error = function(e) NULL)
 
     if (!is.null(tcga_mat) && isTRUE(gid %in% rownames(tcga_mat))) {
-      tcga_raw    <- as.numeric(tcga_mat[gid, ])
+      tcga_raw    <- mat_row(tcga_mat, gid)
       grp         <- tcga_meta$group[match(colnames(tcga_mat), tcga_meta$sample_id)]
       grp[is.na(grp)] <- "Unknown"
       tcga_y      <- apply_scale(tcga_raw)
@@ -2524,7 +2588,7 @@ server <- function(input, output, session) {
     rna_mat  <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
     rna_meta <- tryCatch(rna_meta_rv(), error = function(e) NULL)
     if (!is.null(rna_mat) && isTRUE(gid %in% rownames(rna_mat))) {
-      tpm_raw <- as.numeric(rna_mat[gid, ])
+      tpm_raw <- mat_row(rna_mat, gid)
       grp_col <- if (!is.null(rna_meta)) {
         label_col <- if ("condition"   %in% colnames(rna_meta)) rna_meta$condition
                      else if ("tissue_type" %in% colnames(rna_meta)) rna_meta$tissue_type
@@ -2533,7 +2597,7 @@ server <- function(input, output, session) {
       } else rep("Tumor", length(tpm_raw))
       grp_col[is.na(grp_col)] <- "Tumor"
       df_t <- data.frame(g = grp_col, y = apply_scale(tpm_raw))
-      p1 <- do.call(plot_ly, c(list(df_t, x = ~g, y = ~y), make_box_args("#28646E"))) %>%
+      p1 <- do.call(plot_ly, c(list(df_t, x = ~g, y = ~y), make_box_args("#2F3D46"))) %>%
         layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
                yaxis = list(title = y_label))
     } else {
@@ -2545,7 +2609,7 @@ server <- function(input, output, session) {
     gtex_mat  <- tryCatch(gtex_tpm_rv(), error = function(e) NULL)
     gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
     if (!is.null(gtex_mat) && isTRUE(gid %in% rownames(gtex_mat))) {
-      gtex_raw   <- as.numeric(gtex_mat[gid, ])
+      gtex_raw   <- mat_row(gtex_mat, gid)
       tissue_raw <- gtex_meta$tissue_type[match(colnames(gtex_mat), gtex_meta$sample_id)]
       tissue_raw[is.na(tissue_raw)] <- "Unknown"
       tissue     <- gsub("_", " ", tissue_raw)
@@ -2584,7 +2648,7 @@ server <- function(input, output, session) {
     tcga_mat  <- tryCatch(tcga_tpm_rv(), error = function(e) NULL)
     tcga_meta <- tryCatch(tcga_meta_rv(), error = function(e) NULL)
     if (!is.null(tcga_mat) && isTRUE(gid %in% rownames(tcga_mat))) {
-      tcga_raw    <- as.numeric(tcga_mat[gid, ])
+      tcga_raw    <- mat_row(tcga_mat, gid)
       grp         <- tcga_meta$group[match(colnames(tcga_mat), tcga_meta$sample_id)]
       grp[is.na(grp)] <- "Unknown"
       tcga_y      <- apply_scale(tcga_raw)
@@ -2645,8 +2709,8 @@ server <- function(input, output, session) {
 
   # ── Translation card: Target / Ribocrypt ──────────────────────────────────
   output$plot_prio_transl <- renderPlotly({
-    req(nrow(selected_prio_row()) > 0)
     row       <- selected_prio_row()
+    req(nrow(row) > 0)
     log_scale <- isTRUE((input$prio_transl_scale %||% "log") == "log")
     y_label   <- if (log_scale) "log(PPM+1)" else "PPM"
     y_ref     <- if (log_scale) log(2) else 1   # threshold at PPM = 1
@@ -2677,13 +2741,13 @@ server <- function(input, output, session) {
     ribo_sm <- tryCatch(ribo_meta_rv(), error = function(e) NULL)
 
     if (!is.null(ribo_m) && isTRUE(oid %in% rownames(ribo_m))) {
-      ppm_raw <- as.numeric(ribo_m[oid, ])
+      ppm_raw <- mat_row(ribo_m, oid)
       cond <- if (!is.null(ribo_sm) && "condition" %in% colnames(ribo_sm))
         ribo_sm$condition[match(colnames(ribo_m), ribo_sm$sample_id)]
       else rep("Tumor", length(ppm_raw))
       cond[is.na(cond)] <- "Tumor"
       df_r <- data.frame(g = cond, y = apply_scale(ppm_raw))
-      p1 <- do.call(plot_ly, c(list(df_r, x = ~g, y = ~y), make_box_args("#28646E"))) %>%
+      p1 <- do.call(plot_ly, c(list(df_r, x = ~g, y = ~y), make_box_args("#2F3D46"))) %>%
         layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
                yaxis = list(title = y_label))
     } else {
@@ -2733,7 +2797,7 @@ server <- function(input, output, session) {
     }
 
     if (!is.null(rc_mat) && isTRUE(oid %in% rownames(rc_mat))) {
-      rc_raw <- as.numeric(rc_mat[oid, ])
+      rc_raw <- mat_row(rc_mat, oid)
       sids   <- colnames(rc_mat)
       grp    <- rc_meta$group[match(sids, rc_meta$sample_id)]
       grp[is.na(grp)] <- "Unknown"
@@ -2789,7 +2853,8 @@ server <- function(input, output, session) {
     filename = function() paste0("titan_selection_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
     content  = function(file) {
       req(gene_prioritised_data(), prioritised_data())
-      sel       <- prio_selected_rowids()
+      sel <- prio_selected_rowids()
+      shiny::validate(shiny::need(length(sel) > 0, "No candidates selected."))
       sel_genes <- gene_prioritised_data() %>%
         filter(.row_id %in% sel) %>%
         pull(gene_id)
@@ -3029,11 +3094,16 @@ server <- function(input, output, session) {
 
       if (length(peps) == 0L) {
         store_xr(data.frame())
-      } else if (is.null(ensembl_pep_index) || length(ensembl_pep_index$seqs) == 0L) {
+      } else if (is.null(ensembl_pep_index)) {
         store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
       } else {
-        ref_set <- Biostrings::AAStringSet(ensembl_pep_index$seqs)
-        ref_md5 <- names(ensembl_pep_index$seqs)   # md5 hashes as names
+        pep_seqs <- ensembl_pep_seqs_lazy()
+        if (is.null(pep_seqs) || length(pep_seqs) == 0L) {
+          store_xr(data.frame(Error = "Ensembl 114 pep sequences could not be loaded."))
+          return()
+        }
+        ref_set <- Biostrings::AAStringSet(pep_seqs)
+        ref_md5 <- names(pep_seqs)   # md5 hashes as names
 
         # Render a peptide as HTML, bolding the given (1-based) mismatch positions.
         pep_html <- function(chars, mm_pos) {
@@ -3353,9 +3423,14 @@ server <- function(input, output, session) {
     )
   })
   outputOptions(output, "xreact_status_ui", suspendWhenHidden = FALSE)
-  outputOptions(output, "xreact_hits_dt",   suspendWhenHidden = FALSE)
   outputOptions(output, "blast_status_ui",  suspendWhenHidden = FALSE)
-  outputOptions(output, "blast_hits_dt",    suspendWhenHidden = FALSE)
+  # xreact_hits_dt / blast_hits_dt are NOT forced here: input$detail_orf_id is
+  # pre-populated as soon as "Start TITAN" runs (before the ORF Detail tab is ever
+  # opened), so forcing these DT outputs to render while hidden throws "Cannot read
+  # properties of null (reading 'lazyRender')" against a container that isn't
+  # mounted yet. The underlying cache (xreact_cache_rv/blast_cache_rv) is still
+  # populated by the separate observeEvent(input$detail_orf_id, ...) regardless of
+  # tab visibility, so pre-fetching is unaffected - only the widget draw is deferred.
 
   observeEvent(input$blast_hits_dt_rows_selected, {
     idx <- input$blast_hits_dt_rows_selected
@@ -3466,7 +3541,7 @@ server <- function(input, output, session) {
       tags$div(
         class = "mb-2",
         tags$span(class = "fw-semibold",
-          tags$span(style = "color:#28646E;", n),
+          tags$span(style = "color:#2F3D46;", n),
           sprintf(" candidate%s selected for report", if (n == 1L) "" else "s")
         )
       ),
