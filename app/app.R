@@ -1763,11 +1763,13 @@ server <- function(input, output, session) {
   output$stat_genes <- renderText(formatC(n_distinct(filtered_data()$gene_id), big.mark = ","))
   output$stat_matched_orfs <- renderText({
     if (is.null(matched_data())) return("—")
-    formatC(n_distinct(matched_data()$orf_id), big.mark = ",")
+    fd_ids <- filtered_data()$orf_id
+    formatC(n_distinct(matched_data()$orf_id[matched_data()$orf_id %in% fd_ids]), big.mark = ",")
   })
   output$stat_matches <- renderText({
     if (is.null(matched_data())) return("—")
-    formatC(nrow(matched_data()), big.mark = ",")
+    fd_ids <- filtered_data()$orf_id
+    formatC(sum(matched_data()$orf_id %in% fd_ids), big.mark = ",")
   })
 
   # ── Overview plots ───────────────────────────────────────────────────────────
@@ -1973,29 +1975,41 @@ server <- function(input, output, session) {
   })
 
   # ── Prioritization stats ─────────────────────────────────────────────────────
+  # gene_prioritised_data() filtered by the sidebar spec/risk dropdowns.
+  # Shared by stats AND prio_table_df so the filter logic lives in one place.
+  prio_candidates_filtered <- reactive({
+    req(gene_prioritised_data())
+    gpd      <- gene_prioritised_data()
+    sel_spec <- input$prio_spec_filter %||% c("Tumor-only", "Tumor-enriched", "Non-specific")
+    sel_risk <- input$prio_risk_filter %||% c("Safe", "Acceptable", "Borderline", "Critical", "Unavailable")
+    gpd %>%
+      mutate(spec_category = case_when(
+        is.na(GTEX_tumor_only) | is.na(GTEX_tumor_enriched) ~ "Unavailable",
+        GTEX_tumor_only %in% TRUE                           ~ "Tumor-only",
+        GTEX_tumor_enriched %in% TRUE                       ~ "Tumor-enriched",
+        TRUE                                                ~ "Non-specific"
+      )) %>%
+      filter(spec_category %in% sel_spec, off_tissue_label %in% sel_risk)
+  })
+
   output$stat_prio_total <- renderText({
-    req(gene_prioritised_data()); formatC(nrow(gene_prioritised_data()), big.mark = ",")
+    req(prio_candidates_filtered())
+    formatC(nrow(prio_candidates_filtered()), big.mark = ",")
   })
   output$stat_prio_pep <- renderText({
-    req(gene_prioritised_data()); formatC(sum(gene_prioritised_data()$n_peptides), big.mark = ",")
+    req(prio_candidates_filtered())
+    formatC(sum(prio_candidates_filtered()$n_peptides), big.mark = ",")
   })
   output$stat_prio_top <- renderText({
-    req(gene_prioritised_data())
-    sprintf("%.1f / 100", max(gene_prioritised_data()$priority_score, na.rm = TRUE))
+    req(prio_candidates_filtered())
+    sprintf("%.1f / 100", max(prio_candidates_filtered()$priority_score, na.rm = TRUE))
   })
 
   # ── Priority table (gene-centric) ────────────────────────────────────────────
   prio_table_df <- reactive({
-    req(gene_prioritised_data())
-    gpd <- gene_prioritised_data()
-    df <- gpd %>%
+    req(prio_candidates_filtered())
+    df <- prio_candidates_filtered() %>%
       mutate(
-        spec_category = case_when(
-          is.na(GTEX_tumor_only) | is.na(GTEX_tumor_enriched) ~ "Unavailable",
-          GTEX_tumor_only %in% TRUE                           ~ "Tumor-only",
-          GTEX_tumor_enriched %in% TRUE                       ~ "Tumor-enriched",
-          TRUE                                                ~ "Non-specific"
-        ),
         # score_bar_html/spec_badge_html/biotype_badge_html/off_tissue_risk_html/
         # pct_bar_html are vectorised - called once over the whole column instead
         # of via vapply/mapply per row (matters at thousands of matched ORFs).
@@ -2003,18 +2017,13 @@ server <- function(input, output, session) {
         # (fct_scoring.R) rather than recomputed here - off_tissue_risk() is a
         # genuine per-row loop (parses a ragged "tissue|tissue" string), so
         # it's computed once at ORF level instead of once per reactive here.
-        score_html   = score_bar_html(priority_score),
-        spec_html    = spec_badge_html(GTEX_tumor_only, GTEX_tumor_enriched),
-        biotype_html        = biotype_badge_html(orf_biotype_single),
-        off_tissue_html     = off_tissue_risk_html(off_tissue_label),
-        transl_html  = pct_bar_html(target_translation_pct_samples, "#2F3D46"),
-        expr_html    = pct_bar_html(target_expression_pct_samples, "#7EB8BF")
+        score_html      = score_bar_html(priority_score),
+        spec_html       = spec_badge_html(GTEX_tumor_only, GTEX_tumor_enriched),
+        biotype_html    = biotype_badge_html(orf_biotype_single),
+        off_tissue_html = off_tissue_risk_html(off_tissue_label),
+        transl_html     = pct_bar_html(target_translation_pct_samples, "#2F3D46"),
+        expr_html       = pct_bar_html(target_expression_pct_samples, "#7EB8BF")
       )
-    sel_spec <- input$prio_spec_filter %||% c("Tumor-only", "Tumor-enriched", "Non-specific")
-    sel_risk <- input$prio_risk_filter %||% c("Safe", "Acceptable", "Borderline", "Critical", "Unavailable")
-    df <- filter(df,
-                 spec_category %in% sel_spec,
-                 off_tissue_label %in% sel_risk)
     # DT column layout (0-based, after dropping .orf_id + orf_ids before DT):
     # Sel(0) Gene(1) ORF-biotype(2) Peptides(3) ORF-id(4) Location(5)
     # Specificity(6) Off-tissue risk(7) Score(8) Transl.%(9) Transl.PPM(10) Expr.%(11) Expr.TPM(12)
