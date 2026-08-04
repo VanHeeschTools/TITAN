@@ -2757,7 +2757,7 @@ server <- function(input, output, session) {
       cond[is.na(cond)] <- "Tumor"
       df_r <- data.frame(g = cond, y = apply_scale(ppm_raw))
       p1 <- do.call(plot_ly, c(list(df_r, x = ~g, y = ~y), make_box_args("#2F3D46"))) %>%
-        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE),
+        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE, tickangle = 0),
                yaxis = list(title = y_label))
     } else {
       p1 <- no_data_plot("Target tumor", "No ribo-seq data for this ORF")
