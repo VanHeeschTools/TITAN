@@ -95,10 +95,10 @@ if (length(path_errors))
   stop(sprintf("The following configured paths do not exist on disk:\n%s",
                paste(path_errors, collapse = "\n")), call. = FALSE)
 
-if (!is.null(cfg$riboseq_condition) && !is.null(cfg$riboseq_condition$pattern)) {
-  missing_rc <- setdiff(c("match_label", "nomatch_label"), names(cfg$riboseq_condition))
+if (!is.null(cfg$condition) && !is.null(cfg$condition$pattern)) {
+  missing_rc <- setdiff(c("match_label", "nomatch_label"), names(cfg$condition))
   if (length(missing_rc))
-    stop(sprintf("riboseq_condition.pattern is set but missing: %s",
+    stop(sprintf("condition.pattern is set but missing: %s",
                  paste(missing_rc, collapse = ", ")), call. = FALSE)
 }
 
@@ -166,9 +166,10 @@ classify_ribocrypt_samples <- function(sample_names) {
   list(primary = sample_names[is_primary], cell_line = sample_names[!is_primary])
 }
 
-# Infers ribo-seq sample condition from sample name using the study config pattern.
-get_riboseq_condition <- function(sample_names) {
-  rc <- cfg$riboseq_condition
+# Infers sample condition from sample name using the study config pattern.
+# Applied to both RNA-seq and ribo-seq target tumor samples.
+get_sample_condition <- function(sample_names) {
+  rc <- cfg$condition
   if (is.null(rc) || is.null(rc$pattern))
     return(rep(TARGET_TUMOR_TYPE, length(sample_names)))
   ifelse(grepl(rc$pattern, sample_names, ignore.case = TRUE),
@@ -254,7 +255,7 @@ if (has_riboseq) {
 
   ribo_sample_meta <- data.frame(
     sample_id = colnames(ribo_ppm_mat),
-    condition = get_riboseq_condition(colnames(ribo_ppm_mat))
+    condition = get_sample_condition(colnames(ribo_ppm_mat))
   )
 
   cat(sprintf("      %d ORFs with ribo-seq data, %d samples\n",
@@ -406,7 +407,7 @@ expr_metrics <- compute_expression_metrics(rna_tpm_sub, threshold = expr_thresho
 rna_sample_meta <- data.frame(
   sample_id   = tumor_ids,
   tissue_type = TARGET_TUMOR_TYPE,
-  condition   = TARGET_TUMOR_TYPE
+  condition   = get_sample_condition(tumor_ids)
 )
 
 cat(sprintf("      %d genes with target expression data (%d samples)\n",
