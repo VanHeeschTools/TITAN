@@ -106,24 +106,11 @@ ensembl_gene_annot <- local({
 # GENCODE ORF TABLE  (optional; enables cross-matching against TransCode Phase 2)
 # ─────────────────────────────────────────────────────────────────────────────
 
+source("R/fct_gencode_orf.R")
+
 gencode_orf_tbl <- local({
-  f <- "ref/gencode_orfs_phase2.csv"
-  if (!file.exists(f)) return(NULL)
-  df <- tryCatch(
-    data.table::fread(f, data.table = FALSE, showProgress = FALSE),
-    error = function(e) { message("gencode_orfs_phase2.csv not loaded: ", e$message); NULL }
-  )
+  df <- load_gencode_orf_table("ref/gencode_orfs_phase2.csv")
   if (is.null(df)) return(NULL)
-  # Map TransCode orf_type to app biotype labels (PT is the only rename)
-  df$orf_biotype_single <- ifelse(df$orf_type == "PT", "Processed_transcript_ORF", df$orf_type)
-  df$protein_seq    <- df$sequence_aa
-  df$protein_length <- nchar(df$sequence_aa)
-  df$chr            <- df$chrm
-  df$orf_start      <- as.integer(df[["starts (0-based)"]])
-  df$orf_end        <- as.integer(df[["ends (0-based)"]])
-  df$start_codon    <- df$initiation_codon
-  df$orf_id         <- df$releasev45_id
-  df$gene_id_clean  <- sub("\\..*", "", df$gene_id)
   df[, c("orf_id", "gene_id", "gene_name", "gene_biotype", "orf_biotype_single",
          "protein_seq", "protein_length", "chr", "orf_start", "orf_end",
          "strand", "start_codon", "gene_id_clean")]

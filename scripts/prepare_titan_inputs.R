@@ -49,7 +49,7 @@ if (length(missing_top))
 if (is.null(cfg$output$dir))
   stop("Config missing: output.dir", call. = FALSE)
 
-required_path_keys <- c("ncorfs", "ribo_ppm", "ribo_psites", "ribocrypt_ext",
+required_path_keys <- c("ncorfs", "ribocrypt_ext",
                         "gtex_quant", "gtex_coldata", "tcga_quant", "tcga_coldata")
 missing_keys <- setdiff(required_path_keys, names(cfg$paths))
 if (length(missing_keys))
@@ -67,6 +67,23 @@ if (has_de_sig && !file.exists(cfg$paths$de_sig_all)) {
   path_errors <- c(path_errors,
     sprintf("  paths.de_sig_all (specified but not found): %s", cfg$paths$de_sig_all))
   has_de_sig <- FALSE
+}
+
+# ribo_ppm/ribo_psites (internal ribo-seq) are optional together; if either is
+# provided, both must be provided and both paths must exist. Studies with no
+# internal ribo-seq (translation evidence from RiboCrypt instead) omit both.
+has_riboseq <- !is.null(cfg$paths$ribo_ppm) || !is.null(cfg$paths$ribo_psites)
+if (has_riboseq) {
+  missing_ribo <- setdiff(c("ribo_ppm", "ribo_psites"), names(cfg$paths))
+  if (length(missing_ribo))
+    stop(sprintf(
+      "paths.ribo_ppm/ribo_psites: provide both or neither (missing: %s)",
+      paste(missing_ribo, collapse = ", ")), call. = FALSE)
+  for (p in c("ribo_ppm", "ribo_psites")) {
+    if (!file.exists(cfg$paths[[p]]))
+      path_errors <- c(path_errors,
+        sprintf("  paths.%s (specified but not found): %s", p, cfg$paths[[p]]))
+  }
 }
 
 # tumor_quant is optional; if provided, the path must exist
@@ -112,6 +129,13 @@ if (!has_de_sig)
     paste0("de_sig_all not configured for study '%s'.\n",
            "  GTEX_DE_sig_in_all, GTEX_tumor_only, and GTEX_tumor_enriched\n",
            "  will be NA for ALL candidates in this study's output."),
+    cfg$study_id), call. = FALSE)
+
+if (!has_riboseq)
+  warning(sprintf(
+    paste0("ribo_ppm/ribo_psites not configured for study '%s'.\n",
+           "  target_translation_* columns will be NA for ALL candidates in this\n",
+           "  study's output (RiboCrypt data, if configured, is unaffected)."),
     cfg$study_id), call. = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -194,45 +218,69 @@ cat(sprintf("      %d ncORF candidates, %d unique genes\n",
 # SECTION 2 — TARGET TRANSLATION (ribo-seq)
 # ─────────────────────────────────────────────────────────────────────────────
 
-cat(sprintf("[2/6] Computing target translation metrics (%s ribo-seq)...\n", target_label))
-
-ribo_ppm    <- fread(cfg$paths$ribo_ppm,    data.table = FALSE)
-ribo_psites <- fread(cfg$paths$ribo_psites, data.table = FALSE)
-
-rownames(ribo_ppm)    <- ribo_ppm$orf_id;    ribo_ppm$orf_id    <- NULL
-rownames(ribo_psites) <- ribo_psites$orf_id; ribo_psites$orf_id <- NULL
-
-# Shorten sample IDs for display using study-specific regex (null = skip)
-if (!is.null(cfg$sample_id_regex)) {
-  ribo_ppm    <- rename_with(ribo_ppm,    ~ sub(cfg$sample_id_regex, "", .x))
-  ribo_psites <- rename_with(ribo_psites, ~ sub(cfg$sample_id_regex, "", .x))
-}
-
 candidate_ids <- ncorfs$orf_id
-common_ribo   <- intersect(candidate_ids, rownames(ribo_ppm))
 
-ribo_ppm_mat    <- as.matrix(ribo_ppm[common_ribo, ])
-ribo_psites_mat <- as.matrix(ribo_psites[common_ribo, ])
+if (has_riboseq) {
+  cat(sprintf("[2/6] Computing target translation metrics (%s ribo-seq)...\n", target_label))
 
-transl_metrics <- compute_expression_metrics(ribo_ppm_mat, threshold = expr_threshold) %>%
-  rename(
-    target_translation_num_samples = num_samples,
-    target_translation_pct_samples = pct_samples,
-    target_translation_median_PPM  = median_value,
-    target_translation_max_PPM     = max_value
-  ) %>%
-  mutate(
-    target_translation_median_psites = apply(ribo_psites_mat, 1, median, na.rm = TRUE),
-    orf_id = rownames(.)
+  ribo_ppm    <- fread(cfg$paths$ribo_ppm,    data.table = FALSE)
+  ribo_psites <- fread(cfg$paths$ribo_psites, data.table = FALSE)
+
+  rownames(ribo_ppm)    <- ribo_ppm$orf_id;    ribo_ppm$orf_id    <- NULL
+  rownames(ribo_psites) <- ribo_psites$orf_id; ribo_psites$orf_id <- NULL
+
+  # Shorten sample IDs for display using study-specific regex (null = skip)
+  if (!is.null(cfg$sample_id_regex)) {
+    ribo_ppm    <- rename_with(ribo_ppm,    ~ sub(cfg$sample_id_regex, "", .x))
+    ribo_psites <- rename_with(ribo_psites, ~ sub(cfg$sample_id_regex, "", .x))
+  }
+
+  common_ribo <- intersect(candidate_ids, rownames(ribo_ppm))
+
+  ribo_ppm_mat    <- as.matrix(ribo_ppm[common_ribo, ])
+  ribo_psites_mat <- as.matrix(ribo_psites[common_ribo, ])
+
+  transl_metrics <- compute_expression_metrics(ribo_ppm_mat, threshold = expr_threshold) %>%
+    rename(
+      target_translation_num_samples = num_samples,
+      target_translation_pct_samples = pct_samples,
+      target_translation_median_PPM  = median_value,
+      target_translation_max_PPM     = max_value
+    ) %>%
+    mutate(
+      target_translation_median_psites = apply(ribo_psites_mat, 1, median, na.rm = TRUE),
+      orf_id = rownames(.)
+    )
+
+  ribo_sample_meta <- data.frame(
+    sample_id = colnames(ribo_ppm_mat),
+    condition = get_riboseq_condition(colnames(ribo_ppm_mat))
   )
 
-ribo_sample_meta <- data.frame(
-  sample_id = colnames(ribo_ppm_mat),
-  condition = get_riboseq_condition(colnames(ribo_ppm_mat))
-)
+  cat(sprintf("      %d ORFs with ribo-seq data, %d samples\n",
+              nrow(transl_metrics), nrow(ribo_sample_meta)))
+} else {
+  cat("[2/6] No internal ribo-seq configured for this study — target_translation_* set to NA...\n")
 
-cat(sprintf("      %d ORFs with ribo-seq data, %d samples\n",
-            nrow(transl_metrics), nrow(ribo_sample_meta)))
+  ribo_ppm_mat <- matrix(nrow = length(candidate_ids), ncol = 0,
+                         dimnames = list(candidate_ids, NULL))
+
+  transl_metrics <- data.frame(
+    orf_id                            = candidate_ids,
+    target_translation_num_samples   = NA_integer_,
+    target_translation_pct_samples   = NA_real_,
+    target_translation_median_PPM    = NA_real_,
+    target_translation_max_PPM       = NA_real_,
+    target_translation_median_psites = NA_real_,
+    stringsAsFactors = FALSE
+  )
+
+  ribo_sample_meta <- data.frame(
+    sample_id = character(0),
+    condition = character(0),
+    stringsAsFactors = FALSE
+  )
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — RIBOCRYPT EXTERNAL (primary tissue / cell line)
@@ -622,7 +670,11 @@ if (is.null(cfg$paths$de_sig_all)) {
 }
 cat(sprintf("  GTEX_max_median_TPM    : %s have data\n", pct(titan_table$GTEX_max_median_TPM)))
 cat(sprintf("  TCGA_tumor_median_TPM  : %s have data\n", pct(titan_table$TCGA_tumor_median_TPM)))
-cat(sprintf("  target_translation_PPM : %s have data\n", pct(titan_table$target_translation_median_PPM)))
+if (!has_riboseq) {
+  cat("  target_translation_PPM : ribo_ppm/ribo_psites not provided for this study — all NA\n")
+} else {
+  cat(sprintf("  target_translation_PPM : %s have data\n", pct(titan_table$target_translation_median_PPM)))
+}
 cat(sprintf("  ribocrypt_primary_PPM  : %s have data\n", pct(titan_table$ribocrypt_primary_median_PPM)))
 
 # ─── Save ────────────────────────────────────────────────────────────────────
