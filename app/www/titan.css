@@ -818,6 +818,10 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
 .titan-data-wrap .titan-hero {
   margin-bottom: 0rem;
 }
+.titan-data-wrap .card {
+  height: 43vh;
+  min-height: 260px;
+}
 
 /* ── Data tab hero ───────────────────────────────────────────────────────── */
 .titan-hero {

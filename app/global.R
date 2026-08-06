@@ -206,7 +206,17 @@ gtex_colors <- c(
   Thyroid         = "#DFBCDD",
   Uterus          = "#C68B9B",
   Vagina          = "#BB7D94",
-  Whole_Blood     = "#DD6661"
+  Whole_Blood     = "#DD6661",
+
+  # RETRO-ACTIVE CATALOG STUDIES ONLY: custom aggregate/renamed GTEx groups, not
+  # part of the standard xstitchR Group vocabulary. Aliases reuse their
+  # constituent group's color; aggregates get a new blended color (see above).
+  digestive_system     = "#FDB378",
+  female_reproductive  = "#D2A2A3",
+  Adipose_Tissue       = "#D1B9A5",  # alias of Adipose
+  Blood_Vessel         = "#FFB08E",  # alias of Artery
+  Blood                = "#DD6661",  # alias of Whole_Blood
+  Salivary_Gland       = "#C794C0"   # alias of Salivary
 )
 
 gtex_colors_subtissue <- data.frame(
@@ -228,7 +238,11 @@ gtex_colors_subtissue <- data.frame(
     "Fallopian_Tube", "Ovary", "Uterus", "Vagina", "Adrenal_Gland",
     "Minor_Salivary_Gland", "Pituitary", "Thyroid",
     "Adipose_Subcutaneous", "Adipose_Visceral_Omentum",
-    "Skin_Not_Sun_Exposed_Suprapubic", "Skin_Sun_Exposed_Lower_leg"
+    "Skin_Not_Sun_Exposed_Suprapubic", "Skin_Sun_Exposed_Lower_leg",
+    # RETRO-ACTIVE CATALOG STUDIES ONLY: self-referential Tissue==Group rows for
+    # studies whose DE data was pre-computed at this coarser grouping already
+    "digestive_system", "female_reproductive",
+    "Adipose_Tissue", "Blood_Vessel", "Blood", "Salivary_Gland"
   ),
   Group = c(
     rep("Brain", 13),
@@ -245,7 +259,9 @@ gtex_colors_subtissue <- data.frame(
     "Fallopian_Tube", "Ovary", "Uterus", "Vagina", "Adrenal_Gland",
     "Salivary", "Pituitary", "Thyroid",
     "Adipose", "Adipose",
-    "Skin", "Skin"
+    "Skin", "Skin",
+    "digestive_system", "female_reproductive",
+    "Adipose_Tissue", "Blood_Vessel", "Blood", "Salivary_Gland"
   ),
   ColorHex = c(
     "#90AFD4", "#88A6CC", "#819DC5", "#7994BD", "#7994BD", "#718BB5", "#6A82AE",
@@ -263,7 +279,9 @@ gtex_colors_subtissue <- data.frame(
     "#DBA6A8", "#D099A1", "#C68B9B", "#BB7D94", "#BB80B1",
     "#C794C0", "#CD9EC7", "#DFBCDD",
     "#CDB599", "#D1B9A5",
-    "#E1CEA9", "#ECCBA8"
+    "#E1CEA9", "#ECCBA8",
+    "#FDB378", "#D2A2A3",
+    "#D1B9A5", "#FFB08E", "#DD6661", "#C794C0"
   ),
   stringsAsFactors = FALSE
 )
@@ -392,7 +410,8 @@ BIOTYPE_COLORS <- c(
   "doORF"                    = "#F8E39C",
   "intORF"                   = "#CDD1E0",
   "lncRNA-ORF"               = "#F6B9FF",
-  "pseudogene-ORF"           = "#25CED1"
+  "pseudogene-ORF"           = "#25CED1", 
+  "novel-ORF"                 = "#2E3D46"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────

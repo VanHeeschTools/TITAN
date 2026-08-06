@@ -19,7 +19,22 @@ suppressPackageStartupMessages({
   library(yaml)
 })
 
-source(file.path(dirname(sys.frame(1)$ofile), "../../app/R/fct_data_loading.R"))
+# sys.frame(1)$ofile only resolves when this script is source()'d — it errors
+# ("not that many frames on the stack") when run directly via `Rscript
+# register_study.R ...` (this script's own documented usage). Fall back to
+# parsing --file= from commandArgs() for the direct-invocation case.
+get_script_dir <- function() {
+  file_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
+  if (length(file_arg) > 0)
+    return(dirname(normalizePath(sub("^--file=", "", file_arg[1]))))
+  frame_ofile <- sys.frame(1)$ofile
+  if (!is.null(frame_ofile)) return(dirname(frame_ofile))
+  getwd()
+}
+
+script_dir <- get_script_dir()
+
+source(file.path(script_dir, "../../app/R/fct_data_loading.R"))
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 
@@ -31,7 +46,7 @@ if (length(catalog_flag) > 0) {
   args <- args[-c(catalog_flag, catalog_flag + 1L)]
 } else {
   catalog_path <- normalizePath(
-    file.path(dirname(sys.frame(1)$ofile), "../../app/data/catalog.yaml"),
+    file.path(script_dir, "../../app/data/catalog.yaml"),
     mustWork = FALSE
   )
 }

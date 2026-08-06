@@ -69,21 +69,18 @@ if (has_de_sig && !file.exists(cfg$paths$de_sig_all)) {
   has_de_sig <- FALSE
 }
 
-# ribo_ppm/ribo_psites (internal ribo-seq) are optional together; if either is
-# provided, both must be provided and both paths must exist. Studies with no
-# internal ribo-seq (translation evidence from RiboCrypt instead) omit both.
-has_riboseq <- !is.null(cfg$paths$ribo_ppm) || !is.null(cfg$paths$ribo_psites)
-if (has_riboseq) {
-  missing_ribo <- setdiff(c("ribo_ppm", "ribo_psites"), names(cfg$paths))
-  if (length(missing_ribo))
-    stop(sprintf(
-      "paths.ribo_ppm/ribo_psites: provide both or neither (missing: %s)",
-      paste(missing_ribo, collapse = ", ")), call. = FALSE)
-  for (p in c("ribo_ppm", "ribo_psites")) {
-    if (!file.exists(cfg$paths[[p]]))
-      path_errors <- c(path_errors,
-        sprintf("  paths.%s (specified but not found): %s", p, cfg$paths[[p]]))
-  }
+# ribo_ppm/ribo_psites (internal ribo-seq) are independently optional. Studies
+# with no internal ribo-seq (translation evidence from RiboCrypt instead) omit
+# both. ribo_ppm alone drives Section 2 (target_translation_num_samples/
+# pct_samples/median_PPM/max_PPM); ribo_psites contributes only
+# target_translation_median_psites, which is not surfaced anywhere in the app —
+# safe to omit even when ribo_ppm is present.
+has_riboseq     <- !is.null(cfg$paths$ribo_ppm)
+has_ribo_psites <- !is.null(cfg$paths$ribo_psites)
+for (p in c("ribo_ppm", "ribo_psites")) {
+  if (!is.null(cfg$paths[[p]]) && !file.exists(cfg$paths[[p]]))
+    path_errors <- c(path_errors,
+      sprintf("  paths.%s (specified but not found): %s", p, cfg$paths[[p]]))
 }
 
 # tumor_quant is optional; if provided, the path must exist
@@ -144,16 +141,34 @@ if (!has_riboseq)
 
 strip_ensg_version <- function(x) sub("\\..*", "", x)
 
+# Subsets `mat` to the rows present in `candidate_ids`, padding any candidate
+# missing from mat's rownames with a row of NA — keeps nrow == length(candidate_ids)
+# always, which validate_titan_rds requires, even when a source table (ribo_ppm,
+# ribocrypt_ext) doesn't cover every candidate ORF.
+pad_to_candidates <- function(mat, candidate_ids) {
+  out <- matrix(NA_real_, nrow = length(candidate_ids), ncol = ncol(mat),
+                dimnames = list(candidate_ids, colnames(mat)))
+  common <- intersect(candidate_ids, rownames(mat))
+  out[common, ] <- as.matrix(mat[common, , drop = FALSE])
+  out
+}
+
 # Computes num_samples, pct_samples, median, max from a gene/ORF × sample matrix.
+# Rows that are entirely NA (e.g. pad_to_candidates()-padded, uncovered candidates)
+# get clean NA throughout, rather than the NaN/-Inf that na.rm=TRUE on an all-NA
+# row would otherwise produce.
 compute_expression_metrics <- function(mat, threshold = 1) {
   mat <- as.matrix(mat)
-  data.frame(
+  all_na <- rowSums(!is.na(mat)) == 0
+  out <- data.frame(
     num_samples  = rowSums(mat >= threshold, na.rm = TRUE),
     pct_samples  = 100 * rowMeans(mat >= threshold, na.rm = TRUE),
     median_value = apply(mat, 1, median, na.rm = TRUE),
     max_value    = apply(mat, 1, max, na.rm = TRUE),
     row.names    = rownames(mat)
   )
+  out[all_na, ] <- NA
+  out
 }
 
 # Classifies external RiboCrypt sample names as primary tissue or cell line.
@@ -224,22 +239,30 @@ candidate_ids <- ncorfs$orf_id
 if (has_riboseq) {
   cat(sprintf("[2/6] Computing target translation metrics (%s ribo-seq)...\n", target_label))
 
-  ribo_ppm    <- fread(cfg$paths$ribo_ppm,    data.table = FALSE)
-  ribo_psites <- fread(cfg$paths$ribo_psites, data.table = FALSE)
-
-  rownames(ribo_ppm)    <- ribo_ppm$orf_id;    ribo_ppm$orf_id    <- NULL
-  rownames(ribo_psites) <- ribo_psites$orf_id; ribo_psites$orf_id <- NULL
+  ribo_ppm <- fread(cfg$paths$ribo_ppm, data.table = FALSE)
+  rownames(ribo_ppm) <- ribo_ppm$orf_id; ribo_ppm$orf_id <- NULL
 
   # Shorten sample IDs for display using study-specific regex (null = skip)
   if (!is.null(cfg$sample_id_regex)) {
-    ribo_ppm    <- rename_with(ribo_ppm,    ~ sub(cfg$sample_id_regex, "", .x))
-    ribo_psites <- rename_with(ribo_psites, ~ sub(cfg$sample_id_regex, "", .x))
+    ribo_ppm <- rename_with(ribo_ppm, ~ sub(cfg$sample_id_regex, "", .x))
   }
 
-  common_ribo <- intersect(candidate_ids, rownames(ribo_ppm))
+  n_ribo_covered <- length(intersect(candidate_ids, rownames(ribo_ppm)))
+  if (n_ribo_covered < length(candidate_ids))
+    cat(sprintf("      NOTE: ribo_ppm covers %d/%d candidate ORFs — the rest get NA (padded, not dropped).\n",
+                n_ribo_covered, length(candidate_ids)))
+  ribo_ppm_mat <- pad_to_candidates(ribo_ppm, candidate_ids)
 
-  ribo_ppm_mat    <- as.matrix(ribo_ppm[common_ribo, ])
-  ribo_psites_mat <- as.matrix(ribo_psites[common_ribo, ])
+  if (has_ribo_psites) {
+    ribo_psites <- fread(cfg$paths$ribo_psites, data.table = FALSE)
+    rownames(ribo_psites) <- ribo_psites$orf_id; ribo_psites$orf_id <- NULL
+    if (!is.null(cfg$sample_id_regex))
+      ribo_psites <- rename_with(ribo_psites, ~ sub(cfg$sample_id_regex, "", .x))
+    ribo_psites_mat <- pad_to_candidates(ribo_psites, candidate_ids)
+    psites_median <- apply(ribo_psites_mat, 1, median, na.rm = TRUE)
+  } else {
+    psites_median <- NA_real_
+  }
 
   transl_metrics <- compute_expression_metrics(ribo_ppm_mat, threshold = expr_threshold) %>%
     rename(
@@ -249,7 +272,7 @@ if (has_riboseq) {
       target_translation_max_PPM     = max_value
     ) %>%
     mutate(
-      target_translation_median_psites = apply(ribo_psites_mat, 1, median, na.rm = TRUE),
+      target_translation_median_psites = psites_median,
       orf_id = rownames(.)
     )
 
@@ -300,8 +323,11 @@ cat(sprintf("      %d cell-line samples: %s...\n",
             length(sample_classes$cell_line),
             paste(head(sample_classes$cell_line, 3), collapse = ", ")))
 
-common_rc <- intersect(candidate_ids, rownames(ribocrypt_ext))
-rc_mat    <- as.matrix(ribocrypt_ext[common_rc, ])
+n_rc_covered <- length(intersect(candidate_ids, rownames(ribocrypt_ext)))
+if (n_rc_covered < length(candidate_ids))
+  cat(sprintf("      NOTE: ribocrypt_ext covers %d/%d candidate ORFs — the rest get NA (padded, not dropped).\n",
+              n_rc_covered, length(candidate_ids)))
+rc_mat <- pad_to_candidates(ribocrypt_ext, candidate_ids)
 
 primary_mat   <- rc_mat[, sample_classes$primary,   drop = FALSE]
 cell_line_mat <- rc_mat[, sample_classes$cell_line, drop = FALSE]
