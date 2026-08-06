@@ -15,11 +15,27 @@ suppressPackageStartupMessages({
   library(shinyWidgets)
   library(yaml)
   library(float)
+  library(polished)
 })
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
 options(shiny.maxRequestSize = 1000 * 1024^2)  # 1 GB upload limit
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTHENTICATION (Polished)
+# ─────────────────────────────────────────────────────────────────────────────
+# Open self-service sign-up (email + password): no invite, no domain restriction,
+# since the app is already IP-restricted at the network level.
+# The default role granted to new sign-ups ("general") is set in the Polished
+# dashboard for this app, not here — Polished assigns it automatically on
+# registration. See README.md "Authentication" section for dashboard config notes.
+polished::global_sessions_config(
+  app_name            = Sys.getenv("POLISHED_APP_NAME", "titan"),
+  api_key             = Sys.getenv("POLISHED_API_KEY"),
+  sign_in_providers   = "email",
+  is_invite_required  = FALSE
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STUDY CATALOG  (static at app startup; loaded from data/catalog.yaml)
