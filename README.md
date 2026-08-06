@@ -147,7 +147,7 @@ Navigate to `http://localhost:3838` in your browser.
 
 ## App workflow
 
-1. **Data** tab — load the prepared RDS (`titan_orf_table.rds`) or use the built-in demo dataset
+1. **Data** tab — load the prepared RDS (`titan_orf_table.rds`) or use the built-in catalog data.
 2. **Overview** tab — filter by biotype, ribo-seq and RNA-seq thresholds; inspect translation/expression distributions
 3. **MS** tab — upload a TITAN-ready peptide file; the app matches peptides to ORF protein sequences. Peptides that match an `ORF-annotated` or `NC-variant` ORF are restricted to those canonical biotypes and excluded from ncORF evidence.
 4. **Prioritization** tab — candidates are displayed one row per gene (grouped by gene × biotype × peptide set), with the highest-scoring ORF as the representative; click **+** to expand and inspect co-identified ORFs within the same group. Rows are ranked by a weighted priority score; filter by tumour specificity category or GTEx expression; click a row for the candidate detail panel (tissue Q3 flags, score profile radar, dimension breakdown).
