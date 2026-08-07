@@ -2,6 +2,9 @@
 app/data/*
 !app/data/.gitkeep
 
+# ── local-data/ — local auth SQLite DB (simulates the Cloud Run gcsfuse mount) ──
+local-data/
+
 # ── Scripts ─────────────────────────────────────────────────────────────────────
 scripts/*
 !scripts/prepare_*.R

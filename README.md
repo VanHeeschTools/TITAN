@@ -32,27 +32,12 @@ R packages (install once, preferably in a Singularity image):
 
 ```r
 install.packages(c("shiny", "bslib", "DT", "plotly", "dplyr", "tidyr",
-                   "stringr", "shinyWidgets", "data.table", "digest", "yaml",
-                   "polished", "blastula"))
+                   "stringr", "shinyWidgets", "data.table", "digest", "yaml"))
 # Bioconductor
 BiocManager::install(c("tximport", "matrixStats", "Biostrings", "rBLAST"))
 ```
 
-> **Note**: `Biostrings` and `rBLAST` are required for the cross-reactivity and BLAST homology checks in the ORF Detail tab. `rBLAST` calls the bundled `blastp` binary in `app/bin/`; no system BLAST installation or Singularity image is needed at runtime. `polished` provides account login/sign-up; `blastula` will send catalog-access-request notification emails once that feature is wired up (see [Authentication (Polished)](#authentication-polished)).
-
----
-
-## Authentication (Polished)
-
-TITAN uses [Polished](https://polished.tech) for account creation and login (`app/global.R`, `app/app.R`). Configuration:
-
-- **Sign-up**: open self-service registration (email + password + confirm password), no invite or domain restriction — the app is already IP-restricted at the network level. Set via `is_invite_required = FALSE` in `polished::global_sessions_config()`.
-- **Default role**: new sign-ups are granted the `"general"` role automatically. This is a **Polished dashboard setting** for this app (Roles → default role on registration), not something set in app code.
-- **Password policy**: enforced centrally by Polished, not by TITAN's code. Current dashboard setting for this app: **minimum 10 characters, must include both letters and numbers**. If this is changed in the dashboard, update this line rather than adding validation in the app.
-- **Forgot / reset password**: built into Polished's default sign-in page (`sign_in_ui_default()`) — no extra wiring needed in-app. The reset email is sent by Polished itself, so its delivery depends on the **Email/SMTP settings configured in the Polished dashboard** for this app. Point those settings at the same SMTP server used by `blastula` for catalog-access notifications so both flows send from a consistent, deliverable address.
-- **Required environment variables**: `POLISHED_API_KEY` (from the Polished dashboard for this app; not yet provisioned as of this branch) and optionally `POLISHED_APP_NAME` (defaults to `"titan"`).
-
-Role-request / catalog-access-specific behavior (`app/R/catalog_access.R`) is scaffolded separately and not yet wired into sign-up.
+> **Note**: `Biostrings` and `rBLAST` are required for the cross-reactivity and BLAST homology checks in the ORF Detail tab. `rBLAST` calls the bundled `blastp` binary in `app/bin/`; no system BLAST installation or Singularity image is needed at runtime.
 
 ---
 

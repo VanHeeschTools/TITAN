@@ -15,7 +15,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(jsonlite)
   library(shinyWidgets)
-  library(polished)
 })
 
 # Explicit source guards — no-op if Shiny already auto-sourced these files.
@@ -313,8 +312,7 @@ scoring_sidebar_ui <- function() {
 # UI
 # ─────────────────────────────────────────────────────────────────────────────
 
-ui <- secure_ui(
-  page_navbar(
+ui <- page_navbar(
 
   id           = "main_nav",
   title        = tags$span(
@@ -896,18 +894,13 @@ ui <- secure_ui(
       )
     )
   )
-  ),
-  sign_in_page_ui = polished::sign_in_ui_default(
-    company_name = "TITAN",
-    color        = "#2F3D46"
-  )
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SERVER
 # ─────────────────────────────────────────────────────────────────────────────
 
-server <- secure_server(function(input, output, session) {
+server <- function(input, output, session) {
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
@@ -3702,7 +3695,7 @@ server <- secure_server(function(input, output, session) {
                            "Note: RNA-seq TPM matrix not found - re-run prepare_titan_inputs.R to enable dynamic TPM threshold filtering.")
     do.call(tagList, lines)
   })
-})
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 shinyApp(ui, server)
