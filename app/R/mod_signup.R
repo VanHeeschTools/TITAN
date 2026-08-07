@@ -31,7 +31,7 @@ mod_signup_server <- function(id, db_path) {
       password <- input$password
       confirm  <- input$password_confirm
 
-      if (!grepl("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", email)) {
+      if (!grepl("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", email, perl = TRUE)) {
         showNotification("Enter a valid email address.", type = "error")
         return(invisible(NULL))
       }
