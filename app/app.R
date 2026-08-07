@@ -722,7 +722,7 @@ ui <- secure_app(
   nav_panel(
     "Data", icon = icon("database"),
 
-    uiOutput("data_tab_body")
+    catalog_tab_ui()
   ),
 
   # ── Tab 2: Overview ─────────────────────────────────────────────────────────
@@ -1013,19 +1013,16 @@ server <- function(input, output, session) {
     session$userData$role <- res_auth$role
   })
 
-  # ── Data tab: role-gated (catalog_access) ───────────────────────────────────
-  output$data_tab_body <- renderUI({
-    if (user_has_role(session, "catalog_access")) {
-      catalog_tab_ui()
-    } else {
-      mod_catalog_request_ui("catalog_request")
-    }
-  })
-  mod_catalog_request_server("catalog_request", AUTH_DB_PATH)
-
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
   show_upload_rv <- reactiveVal(FALSE)
+
+  # ── Catalog access request (shown in the ORF candidates card in place of
+  # the study library, for users without catalog_access) ─────────────────────
+  mod_catalog_request_server(
+    "catalog_request", AUTH_DB_PATH,
+    on_switch_to_upload = function() show_upload_rv(TRUE)
+  )
 
   # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
   # Per-orf session caches; all keyed by orf_id.
@@ -1300,18 +1297,22 @@ server <- function(input, output, session) {
                                    if (show_upload) "titan-toggle-active" else "titan-toggle-inactive"))
       ),
       if (!show_upload) {
-        div(
-          div(class = "mb-2",
-            textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
-          ),
-          div(class = "d-flex gap-2 mb-2",
-            selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
-            selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
-          ),
-          div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
-            uiOutput("catalog_study_list")
+        if (user_has_role(session, "catalog_access")) {
+          div(
+            div(class = "mb-2",
+              textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
+            ),
+            div(class = "d-flex gap-2 mb-2",
+              selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
+              selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
+            ),
+            div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
+              uiOutput("catalog_study_list")
+            )
           )
-        )
+        } else {
+          mod_catalog_request_ui("catalog_request")
+        }
       } else {
         div(class = "mt-1",
           fileInput("user_rds_file", NULL, accept = ".rds",
@@ -1364,14 +1365,9 @@ server <- function(input, output, session) {
 
   observeEvent(input$user_rds_file, {
     req(input$user_rds_file)
-    if (!user_has_role(session, "catalog_access")) {
-      warning(sprintf(
-        "Blocked catalog data upload: user '%s' (role '%s') lacks catalog_access.",
-        session$userData$user %||% "unknown", session$userData$role %||% "unknown"
-      ))
-      showNotification("You do not have catalog access.", type = "error")
-      return()
-    }
+    # Uploading your own data is intentionally open to everyone, regardless
+    # of catalog_access — it's the escape hatch offered in place of the study
+    # library (see mod_catalog_request_ui's "upload instead" link).
     withProgress(message = "Loading dataset…", value = 0.2, {
       setProgress(0.6, detail = "Reading RDS…")
       dat <- tryCatch(readRDS(input$user_rds_file$datapath), error = function(e) NULL)
