@@ -1024,6 +1024,25 @@ server <- function(input, output, session) {
     on_switch_to_upload = function() show_upload_rv(TRUE)
   )
 
+  # ── Admin: pending catalog access requests (admin-only nav tab) ─────────────
+  # Role isn't known until after login, so the tab can't be a static nav_panel
+  # — inserted once res_auth$role resolves to "admin". Must depend on the
+  # reactive res_auth$role, not session$userData$role (a plain environment
+  # field, not reactive — reading it wouldn't ever re-trigger this observer).
+  admin_tab_inserted <- reactiveVal(FALSE)
+  observeEvent(res_auth$role, {
+    if (identical(res_auth$role, "admin") && !isolate(admin_tab_inserted())) {
+      nav_insert(
+        "main_nav",
+        nav_panel("Admin", icon = icon("user-shield"),
+                  mod_admin_requests_ui("admin_requests")),
+        select = FALSE
+      )
+      mod_admin_requests_server("admin_requests", AUTH_DB_PATH)
+      admin_tab_inserted(TRUE)
+    }
+  }, ignoreNULL = TRUE)
+
   # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
   # Per-orf session caches; all keyed by orf_id.
   xreact_cache_rv <- reactiveVal(list())
