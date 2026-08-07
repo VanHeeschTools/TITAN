@@ -9,6 +9,8 @@
 library(DBI)
 library(RSQLite)
 
+source("R/db_utils.R")  # hash_password()
+
 # Create the `users` and `catalog_access_requests` tables if they don't already exist.
 create_auth_schema <- function(db_path) {
   dir.create(dirname(db_path), recursive = TRUE, showWarnings = FALSE)
@@ -47,8 +49,7 @@ create_auth_schema <- function(db_path) {
 
 # Insert one admin user with a known test password, for local development only.
 # Guarded by SEED_TEST_ADMIN=true so this can never run against a real database
-# by accident. Password is hashed with scrypt — the same algorithm shinymanager's
-# check_credentials() verifies against, so this row will be usable once auth is wired in.
+# by accident.
 seed_test_admin <- function(db_path,
                              email    = "admin@test.local",
                              password = "TestAdmin123!") {
@@ -63,7 +64,7 @@ seed_test_admin <- function(db_path,
   dbExecute(
     con,
     "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, 'admin')",
-    params = list(email, scrypt::hashPassword(password))
+    params = list(email, hash_password(password))
   )
 
   message(sprintf("Seeded test admin '%s' (password: '%s') — local testing only.", email, password))
