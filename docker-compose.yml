@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    platform: linux/amd64  # Cloud Run only runs linux/amd64; pin so Apple Silicon builds match prod
     ports:
       - "3838:3838"
     environment:
