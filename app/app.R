@@ -15,6 +15,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(jsonlite)
   library(shinyWidgets)
+  library(shinymanager)
 })
 
 # Explicit source guards — no-op if Shiny already auto-sourced these files.
@@ -309,10 +310,50 @@ scoring_sidebar_ui <- function() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AUTH SCREEN — login/sign-up toggle
+# ─────────────────────────────────────────────────────────────────────────────
+# shinymanager's login form lives under module id "auth" (hardcoded by
+# secure_app()), so its fields are #auth-user_input / #auth-container-btn-ok /
+# #auth-shinymanager-auth-head. Plain JS toggle (no shinyjs dependency) swaps
+# those out for the sign-up panel injected via tags_bottom below.
+.signup_toggle_link <- tags$div(
+  style = "text-align:center; margin-top:10px;",
+  tags$a(id = "titan-toggle-link", href = "#", "Don't have an account? Sign up")
+)
+
+.signup_toggle_js <- tags$script(HTML("
+(function () {
+  function el(id) { return document.getElementById(id); }
+  function showSignup() {
+    el('auth-user_input').style.display = 'none';
+    el('auth-container-btn-ok').style.display = 'none';
+    el('titan-signup-panel').style.display = 'block';
+    el('auth-shinymanager-auth-head').innerText = 'Create an account';
+    el('titan-toggle-link').innerText = 'Already have an account? Log in';
+  }
+  function showLogin() {
+    el('auth-user_input').style.display = 'block';
+    el('auth-container-btn-ok').style.display = 'block';
+    el('titan-signup-panel').style.display = 'none';
+    el('auth-shinymanager-auth-head').innerText = 'Please authenticate';
+    el('titan-toggle-link').innerText = \"Don't have an account? Sign up\";
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.id === 'titan-toggle-link') {
+      e.preventDefault();
+      var showingSignup = el('titan-signup-panel').style.display === 'block';
+      if (showingSignup) showLogin(); else showSignup();
+    }
+  });
+})();
+"))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────────────────────────────────────
 
-ui <- page_navbar(
+ui <- secure_app(
+  page_navbar(
 
   id           = "main_nav",
   title        = tags$span(
@@ -894,6 +935,12 @@ ui <- page_navbar(
       )
     )
   )
+  ),
+  tags_bottom = tagList(
+    mod_signup_ui("signup"),
+    .signup_toggle_link,
+    .signup_toggle_js
+  )
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -901,6 +948,10 @@ ui <- page_navbar(
 # ─────────────────────────────────────────────────────────────────────────────
 
 server <- function(input, output, session) {
+
+  # ── Authentication (shinymanager + SQLite) ──────────────────────────────────
+  res_auth <- secure_server(check_credentials = make_check_credentials(AUTH_DB_PATH))
+  mod_signup_server("signup", AUTH_DB_PATH)
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)

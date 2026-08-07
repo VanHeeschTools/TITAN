@@ -56,3 +56,28 @@ safe_db_read <- function(db_path, sql, params = list()) {
   on.exit(dbDisconnect(con))
   dbGetQuery(con, sql, params = params)
 }
+
+# Builds the `check_credentials` function shinymanager::secure_server() expects:
+# function(user, password) -> list(result, user_info, expired, authorized).
+# shinymanager's own check_credentials(db_path) assumes its own `credentials`
+# table shape (user/password/is_hashed_password/admin/...); our `users` table
+# uses different columns (email, password_hash, role), so we implement the
+# contract directly against it instead.
+make_check_credentials <- function(db_path) {
+  function(user, password) {
+    row <- safe_db_read(
+      db_path,
+      "SELECT email, password_hash, role FROM users WHERE email = ?",
+      params = list(user)
+    )
+
+    if (nrow(row) == 0) return(list(result = FALSE, user_info = NULL))
+
+    list(
+      result     = verify_password(password, row$password_hash[1]),
+      user_info  = list(user = row$email[1], role = row$role[1]),
+      expired    = FALSE,
+      authorized = TRUE
+    )
+  }
+}

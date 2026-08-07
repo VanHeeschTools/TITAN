@@ -15,11 +15,24 @@ suppressPackageStartupMessages({
   library(shinyWidgets)
   library(yaml)
   library(float)
+  library(shinymanager)
 })
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
 options(shiny.maxRequestSize = 1000 * 1024^2)  # 1 GB upload limit
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTHENTICATION (shinymanager + SQLite)
+# ─────────────────────────────────────────────────────────────────────────────
+# DB_PATH points at ./local-data/auth.sqlite locally (docker-compose bind
+# mount); overridden to the gcsfuse mount path (e.g. /mnt/gcs-auth/auth.sqlite)
+# on Cloud Run. Explicit source() (not relying on R/ autoload order relative to
+# global.R) — schema creation is idempotent, so it's safe to ensure it here
+# regardless of how the app is launched (docker-compose already does this too).
+source("R/db_setup.R")
+AUTH_DB_PATH <- Sys.getenv("DB_PATH", "./local-data/auth.sqlite")
+create_auth_schema(AUTH_DB_PATH)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STUDY CATALOG  (static at app startup; loaded from data/catalog.yaml)
