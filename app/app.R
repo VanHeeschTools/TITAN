@@ -309,6 +309,47 @@ scoring_sidebar_ui <- function() {
   )
 }
 
+catalog_tab_ui <- function() {
+  div(
+    class = "titan-data-wrap",
+
+    div(
+      class = "titan-hero",
+      tags$img(src = "titan_logo_blue.svg", class = "titan-hero-logo", alt = "TITAN"),
+      div(
+        class = "titan-hero-text",
+        tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
+        tags$p(class = "titan-hero-subtitle", "A tool for exploring and prioritizing tumor-specific ncORF translation products, integrating ribo-seq, RNA-seq, and reference databases across study cohorts.")
+      )
+    ),
+
+    layout_columns(
+      col_widths = c(6, 6),
+      gap = "1rem",
+
+      card(
+        card_header(
+          class = "d-flex align-items-center justify-content-between",
+          tags$span("ORF candidates"),
+          uiOutput("orf_status_badge", inline = TRUE)
+        ),
+        card_body(uiOutput("orf_source_ui"))
+      ),
+
+      card(
+        card_header(
+          class = "d-flex align-items-center justify-content-between",
+          tags$span("MS peptides"),
+          uiOutput("ms_status_badge", inline = TRUE)
+        ),
+        card_body(uiOutput("ms_panel_ui"))
+      )
+    ),
+
+    uiOutput("start_section_ui")
+  )
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AUTH SCREEN — login/sign-up toggle
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,6 +388,50 @@ scoring_sidebar_ui <- function() {
   });
 })();
 "))
+
+# shinymanager ships its own bootstrap 3 theme (readable.min.css), entirely
+# separate from titan_theme (bslib/bootstrap 5) used post-login — so brand
+# matching here means overriding shinymanager's classes directly, plus
+# loading the same Google Fonts titan_theme uses (bslib only applies
+# font_google() to the main app UI, not this pre-auth screen).
+.auth_head <- tagList(
+  tags$link(rel = "stylesheet",
+            href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans:wght@600;700&display=swap"),
+  tags$style(HTML("
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .panel-auth .panel {
+      border: none;
+      border-radius: 14px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+      overflow: hidden;
+    }
+    .panel-auth .panel-primary { border-color: #2F3D46; }
+    .panel-auth .panel-body { padding: 2rem 2.25rem; }
+    .panel-auth h3 {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 600;
+      color: #2F3D46;
+      font-size: 1.3rem;
+    }
+    .panel-auth .btn-primary {
+      background-color: #2F3D46;
+      border-color: #2F3D46;
+    }
+    .panel-auth .btn-primary:hover {
+      background-color: #3d505c;
+      border-color: #3d505c;
+    }
+    .panel-auth input.form-control:focus {
+      border-color: #2F3D46;
+      box-shadow: 0 0 0 0.2rem rgba(47,61,70,0.25);
+    }
+    #titan-toggle-link { color: #2F3D46; font-size: 0.9rem; text-decoration: none; }
+    #titan-toggle-link:hover { text-decoration: underline; }
+    #titan-auth-logo { display: block; height: 44px; margin: 0 auto 14px auto; }
+  "))
+)
+
+.auth_logo <- tags$img(id = "titan-auth-logo", src = "titan_logo_blue.svg", alt = "TITAN")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI
@@ -637,44 +722,7 @@ ui <- secure_app(
   nav_panel(
     "Data", icon = icon("database"),
 
-    div(
-      class = "titan-data-wrap",
-
-      div(
-        class = "titan-hero",
-        tags$img(src = "titan_logo_blue.svg", class = "titan-hero-logo", alt = "TITAN"),
-        div(
-          class = "titan-hero-text",
-          tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
-          tags$p(class = "titan-hero-subtitle", "A tool for exploring and prioritizing tumor-specific ncORF translation products, integrating ribo-seq, RNA-seq, and reference databases across study cohorts.")
-        )
-      ),
-
-      layout_columns(
-        col_widths = c(6, 6),
-        gap = "1rem",
-
-        card(
-          card_header(
-            class = "d-flex align-items-center justify-content-between",
-            tags$span("ORF candidates"),
-            uiOutput("orf_status_badge", inline = TRUE)
-          ),
-          card_body(uiOutput("orf_source_ui"))
-        ),
-
-        card(
-          card_header(
-            class = "d-flex align-items-center justify-content-between",
-            tags$span("MS peptides"),
-            uiOutput("ms_status_badge", inline = TRUE)
-          ),
-          card_body(uiOutput("ms_panel_ui"))
-        )
-      ),
-
-      uiOutput("start_section_ui")
-    )
+    uiOutput("data_tab_body")
   ),
 
   # ── Tab 2: Overview ─────────────────────────────────────────────────────────
@@ -936,11 +984,14 @@ ui <- secure_app(
     )
   )
   ),
+  tags_top = .auth_logo,
   tags_bottom = tagList(
     mod_signup_ui("signup"),
     .signup_toggle_link,
     .signup_toggle_js
-  )
+  ),
+  head_auth  = .auth_head,
+  background = "linear-gradient(135deg, #2F3D46 0%, #3d505c 100%)"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -961,6 +1012,16 @@ server <- function(input, output, session) {
     session$userData$user <- res_auth$user
     session$userData$role <- res_auth$role
   })
+
+  # ── Data tab: role-gated (catalog_access) ───────────────────────────────────
+  output$data_tab_body <- renderUI({
+    if (user_has_role(session, "catalog_access")) {
+      catalog_tab_ui()
+    } else {
+      mod_catalog_request_ui("catalog_request")
+    }
+  })
+  mod_catalog_request_server("catalog_request", AUTH_DB_PATH)
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
@@ -1264,6 +1325,14 @@ server <- function(input, output, session) {
   # One observer per catalog entry, registered at session start
   lapply(STUDY_CATALOG$study_id, function(sid) {
     observeEvent(input[[paste0("load_study_", sid)]], {
+      if (!user_has_role(session, "catalog_access")) {
+        warning(sprintf(
+          "Blocked catalog data load: user '%s' (role '%s') lacks catalog_access.",
+          session$userData$user %||% "unknown", session$userData$role %||% "unknown"
+        ))
+        showNotification("You do not have catalog access.", type = "error")
+        return()
+      }
       entry <- STUDY_CATALOG[STUDY_CATALOG$study_id == sid, ]
       withProgress(message = paste0("Loading ", entry$display_name, "…"), value = 0.2, {
         setProgress(0.6, detail = "Reading RDS (may take ~10 s)…")
@@ -1295,6 +1364,14 @@ server <- function(input, output, session) {
 
   observeEvent(input$user_rds_file, {
     req(input$user_rds_file)
+    if (!user_has_role(session, "catalog_access")) {
+      warning(sprintf(
+        "Blocked catalog data upload: user '%s' (role '%s') lacks catalog_access.",
+        session$userData$user %||% "unknown", session$userData$role %||% "unknown"
+      ))
+      showNotification("You do not have catalog access.", type = "error")
+      return()
+    }
     withProgress(message = "Loading dataset…", value = 0.2, {
       setProgress(0.6, detail = "Reading RDS…")
       dat <- tryCatch(readRDS(input$user_rds_file$datapath), error = function(e) NULL)
