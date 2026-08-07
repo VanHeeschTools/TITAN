@@ -953,6 +953,15 @@ server <- function(input, output, session) {
   res_auth <- secure_server(check_credentials = make_check_credentials(AUTH_DB_PATH))
   mod_signup_server("signup", AUTH_DB_PATH)
 
+  # Bridge the auth reactive into session$userData so plain (non-reactive)
+  # helpers like user_has_role() (R/catalog_access.R) can read it. Role is
+  # captured at login and only refreshes on next login — role changes made
+  # via approve_request() while a session is open take effect next sign-in.
+  observe({
+    session$userData$user <- res_auth$user
+    session$userData$role <- res_auth$role
+  })
+
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
   show_upload_rv <- reactiveVal(FALSE)

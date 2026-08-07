@@ -16,5 +16,5 @@ services:
       # Mimics the future gcsfuse volume mount onto a GCS bucket.
       - ./local-data:/srv/titan/local-data
     command: >
-      bash -c "Rscript -e 'source(\"R/db_setup.R\"); create_auth_schema(Sys.getenv(\"DB_PATH\")); seed_test_admin(Sys.getenv(\"DB_PATH\"))' &&
+      bash -c "Rscript -e 'source(\"R/db_utils.R\"); source(\"R/db_setup.R\"); create_auth_schema(Sys.getenv(\"DB_PATH\")); seed_test_admin(Sys.getenv(\"DB_PATH\"))' &&
                Rscript -e \"shiny::runApp('.', host='0.0.0.0', port=as.integer(Sys.getenv('PORT', 3838)))\""

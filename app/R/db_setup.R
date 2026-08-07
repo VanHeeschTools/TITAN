@@ -1,6 +1,7 @@
 ## Auth database setup — schema creation and local test-admin seeding.
-## Standalone: not sourced by app.R yet (no auth logic wired in). Invoked
-## explicitly, e.g. from docker-compose.yml before the app starts.
+## Depends on hash_password() from R/db_utils.R — callers must source that
+## first (not self-sourced here with a relative path: that breaks under
+## testthat, which runs tests with a different working directory).
 ##
 ## DB_PATH convention: the SQLite file lives wherever DB_PATH points —
 ## ./local-data/auth.sqlite locally (docker-compose bind mount), overridden
@@ -8,8 +9,6 @@
 
 library(DBI)
 library(RSQLite)
-
-source("R/db_utils.R")  # hash_password()
 
 # Create the `users` and `catalog_access_requests` tables if they don't already exist.
 create_auth_schema <- function(db_path) {

@@ -20,7 +20,7 @@ verify_password <- function(password, hash) {
 # lock while another writer/reader touches the mounted file). Logs a warning
 # and returns FALSE without raising if all retries are exhausted; never crashes
 # the app. `.dbExecute` is a testing seam (defaults to DBI::dbExecute).
-safe_db_write <- function(db_path, sql, params = list(), max_retries = 3,
+safe_db_write <- function(db_path, sql, params = NULL, max_retries = 3,
                            .dbExecute = DBI::dbExecute) {
   backoff_s <- c(0.2, 0.5, 1)
   attempt   <- 0
@@ -51,7 +51,7 @@ safe_db_write <- function(db_path, sql, params = list(), max_retries = 3,
 
 # Plain read wrapper — no retry: reads aren't subject to the write-lock
 # contention safe_db_write guards against.
-safe_db_read <- function(db_path, sql, params = list()) {
+safe_db_read <- function(db_path, sql, params = NULL) {
   con <- dbConnect(RSQLite::SQLite(), db_path)
   on.exit(dbDisconnect(con))
   dbGetQuery(con, sql, params = params)
