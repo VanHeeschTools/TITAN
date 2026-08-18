@@ -99,6 +99,10 @@ if (!is.null(cfg$condition) && !is.null(cfg$condition$pattern)) {
                  paste(missing_rc, collapse = ", ")), call. = FALSE)
 }
 
+has_peptides <- !is.null(cfg$paths$peptides) && nzchar(cfg$paths$peptides %||% "")
+if (has_peptides && !file.exists(cfg$paths$peptides))
+  stop(sprintf("paths.peptides specified but not found: %s", cfg$paths$peptides), call. = FALSE)
+
 for (th_name in c("expression", "gtex_q3")) {
   v <- cfg$thresholds[[th_name]]
   if (!is.null(v) && (!is.numeric(v) || v <= 0))
@@ -213,6 +217,82 @@ load_expression_data <- function(path) {
       "Unrecognized expression file extension '.%s' — expected .rds, .csv, or .tsv:\n  %s",
       ext, path), call. = FALSE)
   }
+}
+
+# Peptide column names tried in order — same priority as the Shiny app.
+PEPTIDE_COL_CANDIDATES <- c("Peptide", "Sequence", "peptide", "sequence",
+                              "Annotated Sequence", "Modified Sequence")
+
+# Loads a peptide CSV/TSV and returns a character vector of unique sequences ≥8aa.
+load_peptide_file <- function(path) {
+  first_line <- readLines(path, n = 1L, warn = FALSE, encoding = "UTF-8")
+  first_line <- sub("^\xef\xbb\xbf", "", first_line)
+  n_tabs   <- nchar(first_line) - nchar(gsub("\t", "", first_line, fixed = TRUE))
+  n_commas <- nchar(first_line) - nchar(gsub(",",  "", first_line, fixed = TRUE))
+  sep <- if (n_tabs >= n_commas) "\t" else ","
+  dat <- read.delim(path, sep = sep, stringsAsFactors = FALSE,
+                    check.names = FALSE, fileEncoding = "UTF-8-BOM")
+  col <- intersect(PEPTIDE_COL_CANDIDATES, colnames(dat))
+  col <- if (length(col)) col[1] else colnames(dat)[1]
+  peps <- unique(trimws(dat[[col]]))
+  peps[nchar(peps) >= 8L]
+}
+
+# Exact substring peptide matching. Must be kept in sync with app/R/fct_peptides.R.
+match_peptides <- function(peptides, orf_tbl, k = 6L) {
+  peptides <- unique(trimws(peptides))
+  peptides <- peptides[nchar(peptides) >= 8]
+  if (length(peptides) == 0) return(NULL)
+  canonical <- c("ORF-annotated", "NC-variant")
+  seqs   <- orf_tbl$protein_seq
+  base   <- 27L
+  code_lookup <- integer(256)
+  code_lookup[utf8ToInt(paste0(LETTERS, collapse = ""))] <- 0:25
+  code_lookup[utf8ToInt("*")] <- 26L
+  seq_kmer_hashes <- function(s, k) {
+    codes <- code_lookup[utf8ToInt(s)]
+    n <- length(codes); m <- n - k + 1L
+    if (m < 1L) return(integer(0))
+    h <- integer(m)
+    for (j in 0:(k - 1L)) h <- h * base + codes[(1L + j):(m + j)]
+    h
+  }
+  per_orf  <- lapply(seq_along(seqs), function(i) seq_kmer_hashes(seqs[i], k))
+  n_kmers  <- lengths(per_orf)
+  all_hash <- unlist(per_orf, use.names = FALSE)
+  orf_rep  <- rep(seq_along(seqs), n_kmers)
+  ord         <- order(all_hash)
+  hash_sorted <- all_hash[ord]; orf_sorted <- orf_rep[ord]
+  grp_start_l <- c(TRUE, hash_sorted[-1] != hash_sorted[-length(hash_sorted)])
+  grp_id      <- cumsum(grp_start_l)
+  uniq_hash   <- hash_sorted[grp_start_l]
+  grp_end     <- cumsum(tabulate(grp_id))
+  grp_begin   <- c(1L, head(grp_end, -1) + 1L)
+  char_to_code <- function(chars) {
+    code <- match(chars, LETTERS) - 1L; code[chars == "*"] <- 26L; code
+  }
+  seed_hash <- integer(length(peptides))
+  for (j in seq_len(k)) seed_hash <- seed_hash * base + char_to_code(substr(peptides, j, j))
+  gi    <- match(seed_hash, uniq_hash)
+  valid <- which(!is.na(gi))
+  if (length(valid) == 0) return(NULL)
+  g_valid <- gi[valid]
+  len     <- grp_end[g_valid] - grp_begin[g_valid] + 1L
+  pep_idx_rep <- rep(valid, len)
+  offsets     <- unlist(lapply(seq_along(valid), function(i)
+                   grp_begin[g_valid[i]]:grp_end[g_valid[i]]), use.names = FALSE)
+  cand_orf    <- orf_sorted[offsets]
+  keep        <- stringi::stri_detect_fixed(seqs[cand_orf], peptides[pep_idx_rep])
+  pep_idx_rep <- pep_idx_rep[keep]; cand_orf <- cand_orf[keep]
+  if (length(cand_orf) == 0) return(NULL)
+  combo_key   <- as.double(pep_idx_rep) * (length(seqs) + 1) + cand_orf
+  dedup       <- !duplicated(combo_key)
+  pep_idx_rep <- pep_idx_rep[dedup]; cand_orf <- cand_orf[dedup]
+  matched <- orf_tbl[cand_orf, , drop = FALSE]
+  matched$matched_peptide <- peptides[pep_idx_rep]
+  is_canon      <- matched$orf_biotype_single %in% canonical
+  pep_has_canon <- ave(is_canon, matched$matched_peptide, FUN = any)
+  matched[!pep_has_canon | is_canon, , drop = FALSE]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -704,6 +784,50 @@ if (!has_riboseq) {
 }
 cat(sprintf("  ribocrypt_primary_PPM  : %s have data\n", pct(titan_table$ribocrypt_primary_median_PPM)))
 
+# ─── Pre-match peptides ──────────────────────────────────────────────────────
+# If paths.peptides is set, run match_peptides() now against the final titan_table
+# so the Shiny app can skip the interactive matching step on first load.
+# The sorted peptide sequences are stored alongside the hits as a fingerprint;
+# the app falls back to live matching if the loaded peptide file differs.
+precomputed_pep_hits <- NULL
+precomputed_peptides <- NULL
+
+if (has_peptides) {
+  cat(sprintf("\n[7/6] Pre-matching peptides from: %s\n", cfg$paths$peptides))
+  pep_seqs <- tryCatch(
+    load_peptide_file(cfg$paths$peptides),
+    error = function(e) {
+      warning(sprintf("Peptide pre-matching skipped: %s", e$message), call. = FALSE)
+      NULL
+    }
+  )
+  if (!is.null(pep_seqs) && length(pep_seqs) > 0L) {
+    cat(sprintf("      %s unique peptides (≥8aa)\n", formatC(length(pep_seqs), big.mark = ",")))
+    raw_hits <- match_peptides(pep_seqs, titan_table)
+    if (!is.null(raw_hits) && nrow(raw_hits) > 0L) {
+      # Apply the same additional biotype filter the app runs post-match_peptides()
+      raw_hits <- raw_hits %>%
+        group_by(matched_peptide) %>%
+        filter(
+          if (any(orf_biotype_single == "ORF-annotated", na.rm = TRUE))
+            orf_biotype_single == "ORF-annotated"
+          else
+            TRUE
+        ) %>%
+        ungroup()
+      precomputed_pep_hits <- raw_hits
+      precomputed_peptides <- sort(unique(trimws(pep_seqs)))
+      cat(sprintf("      %s hit rows | %s ORFs | %s peptides matched\n",
+                  formatC(nrow(raw_hits), big.mark = ","),
+                  formatC(n_distinct(raw_hits$orf_id), big.mark = ","),
+                  formatC(n_distinct(raw_hits$matched_peptide), big.mark = ",")))
+    } else {
+      cat("      No peptide matches found.\n")
+      precomputed_peptides <- sort(unique(trimws(pep_seqs)))
+    }
+  }
+}
+
 # ─── Save ────────────────────────────────────────────────────────────────────
 # Convert expression matrices to 32-bit float before saving.
 # Halves their in-memory footprint; the app coerces back to double at the point
@@ -728,6 +852,8 @@ app_data <- list(
     primary_samples   = sample_classes$primary,
     cell_line_samples = sample_classes$cell_line
   ),
+  precomputed_pep_hits = precomputed_pep_hits,
+  precomputed_peptides = precomputed_peptides,
   study_id    = cfg$study_id,
   prepared_on = Sys.time()
 )

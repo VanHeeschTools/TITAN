@@ -1,16 +1,14 @@
 ## Peptide matching and protein-sequence display helpers.
 ## Depends on: stringr (loaded in global.R); html_attr_escape, build_pep_popover defined here.
 
-## Exact substring matching via an integer-encoded k-mer seed index.
-## Building a character-keyed index (e.g. via split() on k-mer strings) does not
-## scale to tens of millions of k-mers - R's string hashing/sorting is the bottleneck.
-## Encoding each k-mer as an integer lets grouping use a fast integer radix sort instead.
-match_peptides <- function(peptides, orf_tbl, k = 6L) {
-  peptides <- unique(trimws(peptides))
-  peptides <- peptides[nchar(peptides) >= 8]
-  if (length(peptides) == 0) return(NULL)
-  canonical <- c("ORF-annotated", "NC-variant")
-
+## Build the ORF-side half of the k-mer seed index: integer k-mer hash -> sorted
+## group of ORF row indices whose protein_seq contains that k-mer. This is the
+## part of match_peptides() that only depends on orf_tbl (not on the peptides
+## being searched), so for a large static reference table - e.g. the Gencode
+## cross-match table, which never changes between peptide uploads - it can be
+## built once (scripts/reference_prep/03_prep_gencode_kmer_index.R) and reused
+## via match_peptides(..., index = )  instead of being rebuilt on every call.
+build_pep_kmer_index <- function(orf_tbl, k = 6L) {
   seqs <- orf_tbl$protein_seq
   base <- 27L   # 26 letters + '*' (stop codon char, if present in protein_seq)
 
@@ -29,7 +27,6 @@ match_peptides <- function(peptides, orf_tbl, k = 6L) {
     h
   }
 
-  # ---- build index: integer k-mer hash -> ORF row indices (one-time cost per call) ----
   per_orf  <- lapply(seq_along(seqs), function(i) seq_kmer_hashes(seqs[i], k))
   n_kmers  <- lengths(per_orf)
   all_hash <- unlist(per_orf, use.names = FALSE)
@@ -43,6 +40,41 @@ match_peptides <- function(peptides, orf_tbl, k = 6L) {
   uniq_hash   <- hash_sorted[grp_start_l]
   grp_end     <- cumsum(tabulate(grp_id))
   grp_begin   <- c(1L, head(grp_end, -1) + 1L)
+
+  list(k = k, base = base, orf_ids = orf_tbl$orf_id,
+       uniq_hash = uniq_hash, grp_begin = grp_begin, grp_end = grp_end,
+       orf_sorted = orf_sorted)
+}
+
+## Exact substring matching via an integer-encoded k-mer seed index.
+## Building a character-keyed index (e.g. via split() on k-mer strings) does not
+## scale to tens of millions of k-mers - R's string hashing/sorting is the bottleneck.
+## Encoding each k-mer as an integer lets grouping use a fast integer radix sort instead.
+##
+## `index`, if supplied, must come from build_pep_kmer_index(orf_tbl, k). Reusing a
+## prebuilt index skips rebuilding it from orf_tbl$protein_seq on every call - the
+## dominant cost when orf_tbl is large and static (e.g. the Gencode cross-match
+## table). Falls back to building fresh (with a warning) if index$orf_ids doesn't
+## match orf_tbl$orf_id (stale index).
+match_peptides <- function(peptides, orf_tbl, k = 6L, index = NULL) {
+  peptides <- unique(trimws(peptides))
+  peptides <- peptides[nchar(peptides) >= 8]
+  if (length(peptides) == 0) return(NULL)
+  canonical <- c("ORF-annotated", "NC-variant")
+
+  if (!is.null(index) && !identical(index$orf_ids, orf_tbl$orf_id)) {
+    warning("match_peptides(): prebuilt index doesn't match orf_tbl (stale? rerun 03_prep_gencode_kmer_index.R) — rebuilding.")
+    index <- NULL
+  }
+  if (is.null(index)) index <- build_pep_kmer_index(orf_tbl, k = k)
+
+  seqs      <- orf_tbl$protein_seq
+  base      <- index$base
+  k         <- index$k
+  uniq_hash <- index$uniq_hash
+  grp_begin <- index$grp_begin
+  grp_end   <- index$grp_end
+  orf_sorted <- index$orf_sorted
 
   # ---- vectorised peptide-side seed hashing (no per-peptide R calls) ----
   char_to_code <- function(chars) {
