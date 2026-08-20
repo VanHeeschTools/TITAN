@@ -160,6 +160,28 @@ gencode_orf_tbl <- local({
          "strand", "start_codon", "gene_id_clean")]
 })
 
+# Prebuilt k-mer index for gencode_orf_tbl (scripts/reference_prep/03_prep_gencode_kmer_index.R).
+# match_peptides() otherwise rebuilds this from scratch on every Gencode cross-match
+# call, which dominates the "Running Gencode cross-match…" step for large peptide
+# uploads. Falls back to NULL (live rebuild inside match_peptides()) if missing or stale.
+gencode_kmer_index <- local({
+  f <- "ref/gencode_kmer_index.rds"
+  if (is.null(gencode_orf_tbl) || !file.exists(f)) {
+    if (!is.null(gencode_orf_tbl))
+      message("Gencode k-mer index not found — run scripts/reference_prep/03_prep_gencode_kmer_index.R for faster cross-matching (falling back to live rebuild).")
+    return(NULL)
+  }
+  idx <- readRDS(f)
+  if (!identical(idx$orf_ids, gencode_orf_tbl$orf_id)) {
+    message("Gencode k-mer index is stale (orf_id mismatch) — rerun scripts/reference_prep/03_prep_gencode_kmer_index.R. Falling back to live rebuild.")
+    return(NULL)
+  }
+  message(sprintf("Gencode k-mer index loaded: k=%d, %s ORFs, %s unique k-mers",
+                   idx$k, formatC(length(idx$orf_ids), big.mark = ","),
+                   formatC(length(idx$uniq_hash), big.mark = ",")))
+  idx
+})
+
 # ─────────────────────────────────────────────────────────────────────────────
 # COLOUR PALETTES  (GTEx tissue groups / TCGA studies)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -516,8 +538,8 @@ WEIGHT_META <- list(
 )
 
 PRESETS <- list(
-  "Cancer-specific" = list(label = "Strict tumor specificity, penalises normal tissue", color = "#FFBEFF"),
-  "Pan-cancer"      = list(label = "Broad coverage, tolerates enriched targets",        color = "#2F3D46")
+  "Cancer-specific" = list(label = "Strict tumor-type specificity, penalises normal tissue", color = "#FFBEFF"),
+  "Pan-cancer"      = list(label = "Broad tumor coverage, penalises normal tissue",        color = "#2F3D46")
 )
 
 # ─────────────────────────────────────────────────────────────────────────────

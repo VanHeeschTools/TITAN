@@ -293,6 +293,27 @@ scoring_sidebar_ui <- function() {
       ),
       hr(class = "my-2"),
 
+      tags$p(class = "text-muted small mb-1 fw-semibold", "Unmatched ORFs"),
+      checkboxInput("prio_include_unmatched",
+                    "Include high-confidence ORFs with no peptide evidence",
+                    value = FALSE),
+      conditionalPanel(
+        condition = "input.prio_include_unmatched",
+        sliderInput("prio_unmatched_topn",
+                    label = tags$span(
+                      "Max. ORFs to add (top-N by translation level)",
+                      tags$br(),
+                      tags$small(class = "text-muted fw-normal", "Higher = slower table load")
+                    ),
+                    min = 500, max = 10000, value = 2000, step = 500, ticks = FALSE),
+        tags$p(class = "text-muted mb-0", style = "font-size:10px;",
+               "Ranked by median translation PPM among ORFs with no peptide match, ",
+               "restricted to the ORF biotypes currently selected in the Overview ",
+               tags$b("ORF biotypes"), " filter. ",
+               "Benchmarked: +1,000 ORFs ≈ +0.3–0.6s table load on top of the matched-only baseline.")
+      ),
+      hr(class = "my-2"),
+
       tags$p(class = "text-muted small mb-1 fw-semibold", "Custom weights",
              tags$span(id = "preset_modified_dot", style = "display:none; margin-left:6px;",
                        tags$span(style = "color:#D4850A; font-size:10px;", "● modified"))),
@@ -722,7 +743,57 @@ ui <- secure_app(
   nav_panel(
     "Data", icon = icon("database"),
 
-    catalog_tab_ui()
+    div(
+      class = "titan-data-wrap",
+
+      div(
+        class = "titan-hero",
+        tags$img(src = "titan_logo_blue.svg", class = "titan-hero-logo", alt = "TITAN"),
+        div(
+          class = "titan-hero-text",
+          tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
+          tags$p(class = "titan-hero-subtitle", "A tool for exploring and prioritizing tumor-specific ncORF translation products, integrating ribo-seq, RNA-seq, and reference databases across study cohorts.")
+        )
+      ),
+
+      navset_card_tab(
+        id = "data_subtab",
+
+        nav_panel(
+          "Study library", icon = icon("book-open"),
+          card_body(
+            div(class = "d-flex justify-content-end mb-2",
+                uiOutput("orf_status_badge", inline = TRUE)),
+            uiOutput("orf_source_ui")
+          )
+        ),
+
+        nav_panel(
+          "Upload data", icon = icon("upload"),
+          card_body(
+            layout_columns(
+              col_widths = c(6, 6),
+              gap = "2.5rem",
+
+              div(
+                div(class = "d-flex justify-content-between align-items-start mb-2",
+                    tags$b("ORF candidates"),
+                    uiOutput("orf_upload_status_badge", inline = TRUE)),
+                uiOutput("orf_upload_ui")
+              ),
+              div(
+                div(class = "d-flex justify-content-between align-items-start mb-2",
+                    tags$b("MS peptides"),
+                    uiOutput("ms_status_badge", inline = TRUE)),
+                uiOutput("ms_panel_ui")
+              )
+            )
+          )
+        )
+      ),
+
+      uiOutput("start_section_ui")
+    )
   ),
 
   # ── Tab 2: Overview ─────────────────────────────────────────────────────────
@@ -799,8 +870,6 @@ ui <- secure_app(
           "Ranked candidates",
           tags$div(
             class = "d-flex gap-1",
-            downloadButton("dl_params",    "Export parameters",
-                           class = "btn-sm btn-outline-primary"),
             downloadButton("dl_priority",  "Export ranked",
                            class = "btn-sm btn-outline-primary"),
             downloadButton("dl_selected",  "Export selection",
@@ -888,10 +957,10 @@ ui <- secure_app(
               card_header(
                 class = "d-flex align-items-center justify-content-between",
                 tags$span("Ribo-seq coverage on target"),
-                tags$small(class = "text-muted fst-italic me-1", "Placeholder")
+                tags$small(class = "text-muted fst-italic me-1", "Feature under developement")
               ),
               card_body(
-                p(class = "text-muted small mb-1", "Placeholder")
+                p(class = "text-muted small mb-1", "Coming soon: ribo-seq coverage plots on the target peptide region, with P-site mapping and codon-level resolution.")
               )
             )
           )
@@ -1015,7 +1084,8 @@ server <- function(input, output, session) {
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
-  show_upload_rv <- reactiveVal(FALSE)
+  orf_upload_info_rv <- reactiveVal(FALSE)
+
 
   # ── Catalog access request (shown in the ORF candidates card in place of
   # the study library, for users without catalog_access) ─────────────────────
@@ -1129,6 +1199,109 @@ server <- function(input, output, session) {
     )
   }, ignoreInit = TRUE)
 
+  # ── Auto-apply precomputed matches on bundled peptide load ───────────────────
+  # When a study RDS contains precomputed_pep_hits and the auto-loaded bundled
+  # peptide file matches the stored fingerprint, apply the results immediately
+  # without requiring the user to click EXPLORE TARGETS.
+  # ms_meta is constructed from user_ms_rv() directly to avoid the input$pep_col
+  # dependency that ms_meta() has (col_selector renders asynchronously).
+  observeEvent(user_ms_rv(), {
+    dat <- app_data_rv()
+    if (is.null(dat) || is.null(dat$precomputed_pep_hits)) return()
+    if (!identical(ms_upload_info_rv()$source, "auto")) return()
+    if (isTRUE(started_rv())) return()
+
+    ms_raw <- user_ms_rv()
+    if (is.null(ms_raw) || nrow(ms_raw) == 0L) return()
+
+    # Detect peptide column without needing input$pep_col
+    pep_col_auto <- {
+      m <- intersect(PEPTIDE_COL_CANDIDATES, colnames(ms_raw))
+      if (length(m)) m[1] else colnames(ms_raw)[1]
+    }
+
+    # Fingerprint check: filter ≥8aa to match what match_peptides() uses
+    cur_peps <- sort(unique(trimws(ms_raw[[pep_col_auto]])))
+    cur_peps <- cur_peps[nchar(cur_peps) >= 8L]
+    if (!identical(cur_peps, dat$precomputed_peptides)) return()
+
+    hits <- dat$precomputed_pep_hits
+
+    # Construct ms_meta equivalent from user_ms_rv() directly
+    ms_renamed <- ms_raw
+    names(ms_renamed)[names(ms_renamed) == pep_col_auto] <- "matched_peptide"
+    score_col <- intersect(PSM_QUALITY_COLS, names(ms_renamed))[1L]
+    meta <- if (!is.na(score_col)) {
+      group_by(ms_renamed, matched_peptide) %>%
+        slice_max(order_by = .data[[score_col]], n = 1L, with_ties = FALSE) %>%
+        ungroup()
+    } else {
+      group_by(ms_renamed, matched_peptide) %>% slice(1L) %>% ungroup()
+    }
+
+    withProgress(message = "Applying pre-matched peptides…", value = 0.2, {
+      setProgress(0.4, detail = "Running Gencode cross-match…")
+      if (!is.null(gencode_orf_tbl)) {
+        gc_all <- match_peptides(cur_peps, gencode_orf_tbl, index = gencode_kmer_index)
+        if (!is.null(gc_all) && nrow(gc_all) > 0L) {
+          gc_summary <- gc_all %>%
+            group_by(matched_peptide) %>%
+            summarise(
+              gencode_match_ids = paste(
+                sprintf("%s (%s, %s)", orf_id, gene_name, orf_biotype_single),
+                collapse = "; "
+              ),
+              .groups = "drop"
+            )
+          if (!is.null(hits) && nrow(hits) > 0L) {
+            hits <- hits %>%
+              left_join(gc_summary, by = "matched_peptide") %>%
+              mutate(gencode_match_ids = replace_na(gencode_match_ids, ""),
+                     gencode_only       = FALSE)
+            gc_only_peps <- setdiff(unique(gc_all$matched_peptide), unique(hits$matched_peptide))
+          } else {
+            gc_only_peps <- unique(gc_all$matched_peptide)
+          }
+          if (length(gc_only_peps) > 0L) {
+            gc_only_rows <- gc_all %>%
+              filter(matched_peptide %in% gc_only_peps) %>%
+              mutate(gencode_match_ids = "", gencode_only = TRUE)
+            expr_cols <- intersect(
+              c("target_expression_num_samples", "target_expression_pct_samples",
+                "target_expression_median_TPM", "target_expression_max_TPM",
+                "GTEX_max_median_TPM", "GTEX_median_TPM", "GTEX_DE_sig_in_all",
+                "GTEX_tumor_only", "GTEX_tumor_enriched", "GTEX_tissues_q3_gt1",
+                "TCGA_tumor_num_samples", "TCGA_tumor_pct_samples",
+                "TCGA_tumor_median_TPM", "TCGA_tumor_max_TPM",
+                "TCGA_normal_num_samples", "TCGA_normal_pct_samples",
+                "TCGA_normal_median_TPM", "TCGA_normal_max_TPM"),
+              colnames(orf_table_rv())
+            )
+            gene_expr <- orf_table_rv() %>%
+              group_by(gene_id_clean) %>%
+              summarise(across(all_of(expr_cols), first), .groups = "drop")
+            gc_only_rows <- gc_only_rows %>%
+              left_join(gene_expr, by = "gene_id_clean")
+            hits <- bind_rows(hits, gc_only_rows)
+          }
+        } else if (!is.null(hits) && nrow(hits) > 0L) {
+          hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
+        }
+      } else if (!is.null(hits) && nrow(hits) > 0L) {
+        hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
+      }
+      setProgress(0.9, detail = "Joining MS metadata…")
+      result <- if (!is.null(hits) && nrow(hits) > 0L) {
+        left_join(hits, meta, by = "matched_peptide")
+      } else {
+        data.frame(orf_id = character(0), matched_peptide = character(0))
+      }
+      all_matches_rv(result)
+    })
+    started_rv(TRUE)
+    nav_select("main_nav", "Overview")
+  }, ignoreInit = TRUE, ignoreNULL = TRUE)
+
   # ── ORF Detail: gene dropdown — populated from filtered candidate set ─────────
   # Shared helper: build the filtered ORF table (same logic for gene list and ORF list).
   detail_orf_tbl <- reactive({
@@ -1149,7 +1322,7 @@ server <- function(input, output, session) {
   }, {
     tbl <- tryCatch(detail_orf_tbl(), error = function(e) NULL)
     if (is.null(tbl)) {
-      updateSelectizeInput(session, "detail_gene_id", choices = character(0), server = FALSE)
+      updateSelectizeInput(session, "detail_gene_id", choices = character(0), server = TRUE)
       updateSelectizeInput(session, "detail_orf_id",  choices = character(0), server = FALSE)
       return()
     }
@@ -1160,8 +1333,14 @@ server <- function(input, output, session) {
       top_row <- tbl[tbl$orf_id == ppd$.orf_id[1L], ]
       if (nrow(top_row) > 0L) top_row$gene_name[1L] else genes[1L]
     } else genes[1L]
+    # server = TRUE: with tens of thousands of gene names, sending the full
+    # choice list to the browser (client-side selectize) means building/
+    # indexing that many DOM/JS option entries on every update - this is
+    # what made the ORF Detail dropdown feel slow, not the ~0.5s server-side
+    # cost (see profiling/selectize_isolate_log.txt). Server-side selectize
+    # queries matches on demand instead of shipping the whole list.
     updateSelectizeInput(session, "detail_gene_id",
-      choices = genes, selected = top_gene, server = FALSE)
+      choices = genes, selected = top_gene, server = TRUE)
   }, ignoreNULL = FALSE, ignoreInit = FALSE)
 
   # ── ORF Detail: ORF dropdown — cascade from selected gene ────────────────────
@@ -1300,46 +1479,80 @@ server <- function(input, output, session) {
   })
 
   output$orf_source_ui <- renderUI({
-    show_upload <- show_upload_rv()
     ct_choices     <- c("All cancer types" = "ALL",
                         sort(unique(na.omit(STUDY_CATALOG$cancer_type))))
     cohort_choices <- c("All cohorts" = "ALL",
                         sort(unique(na.omit(STUDY_CATALOG$cohort))))
-    div(
-      # Toggle buttons: Study Library | Upload Data
-      div(class = "d-flex gap-2 mb-3",
-        actionButton("show_library_btn", tagList(icon("book-open"), " Study Library"),
-                     class = paste("btn-sm",
-                                   if (!show_upload) "titan-toggle-active" else "titan-toggle-inactive")),
-        actionButton("show_upload_btn", tagList(icon("upload"), " Upload Data"),
-                     class = paste("btn-sm",
-                                   if (show_upload) "titan-toggle-active" else "titan-toggle-inactive"))
+    layout_columns(
+      col_widths = c(4, 8),
+      gap = "1.5rem",
+
+      div(
+        class = "titan-catalog-filters",
+        textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%"),
+        selectInput("catalog_ct_filter",     NULL, width = "100%", choices = ct_choices),
+        selectInput("catalog_cohort_filter", NULL, width = "100%", choices = cohort_choices)
       ),
-      if (!show_upload) {
-        if (user_has_role(session, "catalog_access")) {
-          div(
-            div(class = "mb-2",
-              textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
-            ),
-            div(class = "d-flex gap-2 mb-2",
-              selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
-              selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
-            ),
-            div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
-              uiOutput("catalog_study_list")
-            )
-          )
-        } else {
-          mod_catalog_request_ui("catalog_request")
-        }
-      } else {
-        div(class = "mt-1",
-          fileInput("user_rds_file", NULL, accept = ".rds",
-                    buttonLabel = "Browse…",
-                    placeholder = "titan_<study_id>.rds")
-        )
-      }
+      div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
+        uiOutput("catalog_study_list")
+      )
     )
+  })
+
+  # Upload data sub-tab: manual ORF RDS upload (separate from the Study
+  # library sub-tab; each has its own status badge since the two paths are
+  # independent ways to populate app_data_rv()).
+  output$orf_upload_ui <- renderUI({
+    dat  <- app_data_rv()
+    info <- orf_upload_info_rv()
+
+    if (is.null(dat)) {
+      # ── Upload form ────────────────────────────────────────────────────────
+      fileInput("user_rds_file", "Upload ORF candidates RDS",
+                accept      = ".rds",
+                buttonLabel = "Browse…",
+                placeholder = "titan_<study_id>.rds",
+                width       = "100%")
+    } else {
+      # ── Loaded state — mirrors MS peptides active-card pattern ─────────────
+      # (source: "catalog" = loaded via Study Library, "upload" = this manual
+      # fileInput; either way app_data_rv() is populated the same way.)
+      n_orfs_str <- formatC(nrow(dat$orf_table), big.mark = ",", format = "d")
+
+      label <- if (!is.null(info)) {
+        if (identical(info$source, "catalog"))
+          paste0("Study Library — ", info$name)
+        else
+          info$name
+      } else "Loaded RDS"
+
+      ts_str <- if (!is.null(info)) format(info$timestamp, "%Y-%m-%d %H:%M") else NULL
+
+      div(class = "titan-study-active",
+        div(class = "d-flex justify-content-between align-items-start",
+          div(
+            tags$p(class = "mb-1 fw-semibold",
+                   icon("file-lines"), " ", label),
+            div(class = "d-flex gap-2 mt-1 flex-wrap align-items-center",
+              tags$span(class = "badge rounded-pill text-bg-light border",
+                        paste0(n_orfs_str, " ORFs")),
+              if (!is.null(ts_str))
+                tags$small(class = "text-muted", ts_str)
+            )
+          ),
+          actionButton("clear_rds", NULL, icon = icon("trash"),
+                       class = "btn-sm btn-outline-danger flex-shrink-0",
+                       title = "Clear ORF data")
+        )
+      )
+    }
+  })
+
+  output$orf_upload_status_badge <- renderUI({
+    if (!is.null(app_data_rv()))
+      tags$span(class = "titan-status-badge titan-status-ready", "Ready")
+    else
+      tags$span(class = "titan-status-badge titan-status-awaiting", "Awaiting data")
   })
 
   # One observer per catalog entry, registered at session start
@@ -1375,6 +1588,7 @@ server <- function(input, output, session) {
         setProgress(1)
         dat <- fl32_to_dbl(dat)
         app_data_rv(dat)
+        orf_upload_info_rv(list(name = entry$display_name, timestamp = Sys.time(), source = "catalog"))
         gc(verbose = FALSE)
       })
     }, ignoreInit = TRUE)
@@ -1403,17 +1617,11 @@ server <- function(input, output, session) {
       setProgress(1)
       dat <- fl32_to_dbl(dat)
       app_data_rv(dat)
+      orf_upload_info_rv(list(name = input$user_rds_file$name, timestamp = Sys.time(), source = "upload"))
       gc(verbose = FALSE)
     })
   })
 
-  observeEvent(input$show_library_btn, {
-    show_upload_rv(FALSE)
-  }, ignoreInit = TRUE)
-
-  observeEvent(input$show_upload_btn, {
-    show_upload_rv(TRUE)
-  }, ignoreInit = TRUE)
 
   output$ms_panel_ui <- renderUI({
     ms   <- tryCatch(ms_data(), error = function(e) NULL)
@@ -1424,7 +1632,8 @@ server <- function(input, output, session) {
       fileInput("ms_file", "Upload MS results file",
                 accept      = c(".csv", ".tsv", ".txt"),
                 buttonLabel = "Browse…",
-                placeholder = "peptides.csv / .tsv")
+                placeholder = "peptides.csv / .tsv",
+                width       = "100%")
     } else {
       # ── Loaded state — mirrors ORF candidates active-card pattern ──────────
       pep_col_auto <- tryCatch(auto_pep_col(), error = function(e) NULL)
@@ -1485,9 +1694,9 @@ server <- function(input, output, session) {
 
   observeEvent(input$clear_rds, {
     app_data_rv(NULL)
+    orf_upload_info_rv(NULL)
     all_matches_rv(NULL)
     started_rv(FALSE)
-    show_upload_rv(FALSE)
     # Clear MS data only if it was auto-loaded with this study (not a manual upload)
     if (identical(ms_upload_info_rv()$source, "auto")) {
       user_ms_rv(NULL)
@@ -1535,7 +1744,7 @@ server <- function(input, output, session) {
       }
       # Gencode cross-match: annotate in-house hits and add Gencode-only rows
       if (!is.null(gencode_orf_tbl)) {
-        gc_all <- match_peptides(ms_peptides(), gencode_orf_tbl)
+        gc_all <- match_peptides(ms_peptides(), gencode_orf_tbl, index = gencode_kmer_index)
         if (!is.null(gc_all) && nrow(gc_all) > 0L) {
           # Case (a): build per-peptide summary of matching Gencode ORFs
           gc_summary <- gc_all %>%
@@ -1614,10 +1823,24 @@ server <- function(input, output, session) {
       else if (!is.null(ms_raw))
         formatC(nrow(ms_raw), big.mark = ",", format = "d")
       else "?"
+      # Check if precomputed matches exist and will be valid for the loaded peptides
+      dat      <- app_data_rv()
+      cur_peps <- tryCatch({
+        p <- sort(unique(trimws(ms_peptides())))
+        p[nchar(p) >= 8L]
+      }, error = function(e) NULL)
+      pre_peps <- dat$precomputed_peptides
+      has_pre  <- !is.null(dat$precomputed_pep_hits) && !is.null(pre_peps) &&
+                  !is.null(cur_peps) && identical(cur_peps, pre_peps)
+      pre_badge <- if (has_pre)
+        tags$span(class = "badge rounded-pill text-bg-success ms-2 small fw-normal",
+                  icon("bolt"), " pre-matched")
+      else NULL
       div(
         class = "mt-4 text-center",
         tags$p(class = "text-muted small mb-2",
-               paste0(n_orfs_str, " ORFs × ", n_peps_str, " peptides ready to match")),
+               paste0(n_orfs_str, " ORFs × ", n_peps_str, " peptides ready to match"),
+               pre_badge),
         actionButton("start_titan", "EXPLORE TARGETS",
                      icon  = icon("play-circle"),
                      class = "btn-lg btn-primary btn-titan-ready px-5 py-2 fw-bold")
@@ -1854,10 +2077,47 @@ server <- function(input, output, session) {
     ), by = orf_id, .SDcols = first_cols]
     per_orf <- as.data.frame(per_orf)
 
+    # Optionally add high-confidence ORFs with NO peptide evidence at all -
+    # capped to the top N (by median translation PPM) so this stays bounded:
+    # benchmarked (profiling/bench_unmatched_orfs.R) at ~+0.3-0.6s per 1000
+    # extra ORFs on top of an already-heavy matched-only baseline, so an
+    # uncapped "all unmatched ORFs" option would make an already slow table
+    # much slower. n_peptides = 0 / matched_peptides = "" marks these as
+    # unmatched for downstream display (make_peptide_cell) and for grouping
+    # in gene_prioritised_data() (same gene+biotype+"" collapses together,
+    # same mechanism already used for shared-peptide-evidence groups).
+    if (isTRUE(input$prio_include_unmatched)) {
+      topn <- input$prio_unmatched_topn %||% 2000L
+      ot   <- orf_table_rv()
+      # Restrict the unmatched pool to the biotypes currently selected in the
+      # Overview "ORF biotypes" picker (input$biotype_filter) - that control
+      # lives on the Overview tab but its value persists while hidden on
+      # Prioritization (conditionalPanel only toggles display, not the
+      # input), so this always reflects whatever categories the user is
+      # actually looking at, without adding a second biotype control here.
+      selected_bios <- input$biotype_filter %||% sort(unique(ot$orf_biotype_single))
+      if (length(selected_bios) < length(unique(ot$orf_biotype_single)))
+        ot <- ot[ot$orf_biotype_single %in% selected_bios, , drop = FALSE]
+      unmatched <- ot[!ot$orf_id %in% per_orf$orf_id &
+                        !is.na(ot$target_translation_median_PPM), , drop = FALSE]
+      unmatched <- unmatched[order(-unmatched$target_translation_median_PPM), , drop = FALSE]
+      unmatched <- head(unmatched, topn)
+      if (nrow(unmatched) > 0L) {
+        unmatched$n_peptides       <- 0L
+        unmatched$matched_peptides <- ""
+        common_cols <- intersect(names(per_orf), names(unmatched))
+        extra <- unmatched[, common_cols, drop = FALSE]
+        for (mc in setdiff(names(per_orf), names(extra))) extra[[mc]] <- NA
+        per_orf <- bind_rows(per_orf, extra[, names(per_orf)])
+      }
+    }
+
     score_candidates(per_orf, current_weights()) %>%
       arrange(desc(priority_score)) %>%
       mutate(.row_id = row_number())
-  }) %>% bindCache(matched_data(), current_weights())
+  }) %>% bindCache(matched_data(), current_weights(),
+                    input$prio_include_unmatched, input$prio_unmatched_topn,
+                    input$biotype_filter)
 
   gene_prioritised_data <- reactive({
     req(prioritised_data())
@@ -1947,6 +2207,10 @@ server <- function(input, output, session) {
     biotype_bar(matched_orfs_df)
   })
 
+  # type = "scattergl" (not "scatter") on every trace below: this can carry
+  # many thousands of points post-filter, and plotly's default SVG scatter
+  # renderer degrades sharply past a few thousand markers client-side - WebGL
+  # rendering is what actually made this plot feel slow, not server compute.
   output$plot_transl_expr <- renderPlotly({
     df <- filtered_data() %>%
       filter(!is.na(target_translation_median_PPM), !is.na(target_expression_median_TPM))
@@ -1995,7 +2259,7 @@ server <- function(input, output, session) {
         plot_ly(df,
                 x = ~log10(target_expression_median_TPM + 0.1),
                 y = ~log10(target_translation_median_PPM + 0.1),
-                type = "scatter", mode = "markers",
+                type = "scattergl", mode = "markers",
                 color = ~orf_biotype_single, colors = BIOTYPE_COLORS,
                 marker = list(size = 5, opacity = 0.65, line = list(width = 0)),
                 text = ~tip, hovertemplate = "%{text}<extra></extra>")
@@ -2011,7 +2275,7 @@ server <- function(input, output, session) {
       col   <- unname(BIOTYPE_COLORS[bio])
       if (length(col) == 0 || is.na(col)) col <- "#95A5A6"
       p <- p %>% add_trace(
-        data = d_bio, type = "scatter", mode = "markers",
+        data = d_bio, type = "scattergl", mode = "markers",
         x = ~log10(target_expression_median_TPM + 0.1),
         y = ~log10(target_translation_median_PPM + 0.1),
         name = bio, legendgroup = bio,
@@ -2026,7 +2290,7 @@ server <- function(input, output, session) {
       col   <- unname(BIOTYPE_COLORS[bio])
       if (length(col) == 0 || is.na(col)) col <- "#95A5A6"
       p <- p %>% add_trace(
-        data = d_bio, type = "scatter", mode = "markers",
+        data = d_bio, type = "scattergl", mode = "markers",
         x = ~log10(target_expression_median_TPM + 0.1),
         y = ~log10(target_translation_median_PPM + 0.1),
         name = bio, legendgroup = bio, showlegend = TRUE,
@@ -2192,7 +2456,7 @@ server <- function(input, output, session) {
         paste0(link, expand)
       },
       `ORF-biotype`  = biotype_html,
-      Peptides       = vapply(matched_peptides, make_peptide_cell, character(1)),
+      Peptides       = make_peptide_cell(matched_peptides),
       `ORF-id`       = sprintf('<span class="font-monospace" style="font-size:10px;word-break:break-all">%s</span>',
                                orf_id),
       Location       = sprintf('%s:%s&ndash;%s %s %s',
@@ -2992,61 +3256,89 @@ server <- function(input, output, session) {
     out
   })
 
+  # Shared "# key: value" comment header (scoring + filter parameters that were
+  # active for this export) prepended to both CSV exports below, replacing the
+  # old separate "Export parameters" CSV/button - same information, but always
+  # travels with the data instead of needing to be downloaded and matched up
+  # by hand.
+  build_export_header <- function(n_rows) {
+    preset <- active_preset()
+    w      <- current_weights()
+    weight_lines <- vapply(WEIGHT_META, function(m) {
+      sprintf("#     %s = %.2f", m$label, as.numeric(w[[m$id]]))
+    }, character(1))
+
+    spec_sel <- input$prio_spec_filter %||% c("Tumor-only", "Tumor-enriched", "Non-specific", "Unavailable")
+    risk_sel <- input$prio_risk_filter %||% c("Safe", "Acceptable", "Borderline", "Critical", "Unavailable")
+    bio_sel  <- input$biotype_filter   %||% character(0)
+
+    # Header lines are plain "#"-comment text, but avoid commas within them
+    # regardless (multi-value list separator, thousands grouping) - a strict
+    # or comma-naive CSV reader that doesn't skip "#" lines could otherwise
+    # misread a header line as extra data fields.
+    unmatched_line <- if (isTRUE(input$prio_include_unmatched)) {
+      sprintf("# Unmatched ORFs included: yes (top %d by translation level)",
+              as.integer(input$prio_unmatched_topn %||% 2000L))
+    } else {
+      "# Unmatched ORFs included: no"
+    }
+
+    c(
+      paste0("# TITAN export - ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+      paste0("# Study: ", app_data_rv()$study_id %||% "unknown"),
+      paste0("# Rows exported: ", n_rows),
+      paste0("# Scoring preset: ", if (is.null(preset)) "Custom" else preset),
+      "# Scoring weights:",
+      weight_lines,
+      paste0("# Tumor specificity filter: ", paste(spec_sel, collapse = " | ")),
+      paste0("# Off-tissue risk filter: ", paste(risk_sel, collapse = " | ")),
+      paste0("# ORF biotypes filter: ", paste(bio_sel, collapse = " | ")),
+      unmatched_line,
+      "#"
+    )
+  }
+
+  export_cols <- function(df) {
+    df %>%
+      mutate(orf_coordinates = paste0(chr, ":", orf_start, "-", orf_end)) %>%
+      select(orf_id, gene_name, orf_biotype = orf_biotype_single, orf_coordinates,
+             .row_id, n_peptides, matched_peptides, protein_length, start_codon,
+             priority_score, starts_with("dim_"),
+             target_expression_pct_samples, target_expression_median_TPM,
+             target_translation_pct_samples, target_translation_median_PPM,
+             GTEX_tumor_only, GTEX_tumor_enriched, GTEX_max_median_TPM,
+             TCGA_tumor_pct_samples, TCGA_normal_pct_samples,
+             ribocrypt_primary_pct_samples, `ribocrypt_cell-line_pct_samples`)
+  }
+
+  # Parameter named `dest` (not `file`) so the base::file() connection
+  # constructor below can't be shadowed by the argument.
+  write_csv_with_header <- function(df, dest) {
+    con <- file(dest, open = "w")
+    on.exit(close(con))
+    writeLines(build_export_header(nrow(df)), con)
+    write.csv(df, con, row.names = FALSE)
+  }
+
   output$dl_priority <- downloadHandler(
     filename = function() paste0("titan_priority_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
-    content  = function(file) {
+    content  = function(dest) {
       req(prioritised_data())
-      df <- prioritised_data() %>%
-        select(.row_id, n_peptides, matched_peptides, gene_name, orf_biotype_single,
-               chr, orf_start, orf_end, protein_length, start_codon,
-               priority_score, starts_with("dim_"),
-               target_expression_pct_samples, target_expression_median_TPM,
-               target_translation_pct_samples, target_translation_median_PPM,
-               GTEX_tumor_only, GTEX_tumor_enriched, GTEX_max_median_TPM,
-               TCGA_tumor_pct_samples, TCGA_normal_pct_samples,
-               ribocrypt_primary_pct_samples, `ribocrypt_cell-line_pct_samples`,
-               orf_id)
-      write.csv(df, file, row.names = FALSE)
+      write_csv_with_header(export_cols(prioritised_data()), dest)
     }
   )
 
   output$dl_selected <- downloadHandler(
     filename = function() paste0("titan_selection_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
-    content  = function(file) {
+    content  = function(dest) {
       req(gene_prioritised_data(), prioritised_data())
       sel <- prio_selected_rowids()
       shiny::validate(shiny::need(length(sel) > 0, "No candidates selected."))
       sel_genes <- gene_prioritised_data() %>%
         filter(.row_id %in% sel) %>%
         pull(gene_id)
-      df <- prioritised_data() %>%
-        filter(gene_id %in% sel_genes) %>%
-        select(.row_id, n_peptides, matched_peptides, gene_name, orf_biotype_single,
-               chr, orf_start, orf_end, protein_length, start_codon,
-               priority_score, starts_with("dim_"),
-               target_expression_pct_samples, target_expression_median_TPM,
-               target_translation_pct_samples, target_translation_median_PPM,
-               GTEX_tumor_only, GTEX_tumor_enriched, GTEX_max_median_TPM,
-               TCGA_tumor_pct_samples, TCGA_normal_pct_samples,
-               ribocrypt_primary_pct_samples, `ribocrypt_cell-line_pct_samples`,
-               orf_id)
-      write.csv(df, file, row.names = FALSE)
-    }
-  )
-
-  output$dl_params <- downloadHandler(
-    filename = function() paste0("titan_scoring_params_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
-    content  = function(file) {
-      preset <- active_preset()
-      w      <- current_weights()
-      params <- data.frame(
-        preset    = if (is.null(preset)) "Custom" else preset,
-        dimension = sapply(WEIGHT_META, `[[`, "label"),
-        weight    = sapply(WEIGHT_META, function(m) as.numeric(w[[m$id]])),
-        signal    = sapply(WEIGHT_META, `[[`, "hint"),
-        stringsAsFactors = FALSE
-      )
-      write.csv(params, file, row.names = FALSE)
+      df <- prioritised_data() %>% filter(gene_id %in% sel_genes)
+      write_csv_with_header(export_cols(df), dest)
     }
   )
 
@@ -3084,8 +3376,8 @@ server <- function(input, output, session) {
   })
 
   output$detail_orf_meta <- renderUI({
-    req(nrow(detail_orf()) > 0)
-    o        <- detail_orf()
+    o <- detail_orf()
+    req(nrow(o) > 0)
     siblings <- detail_orf_siblings()
     tbl      <- orf_table_rv()
 
@@ -3205,8 +3497,9 @@ server <- function(input, output, session) {
   })
 
   output$detail_protein_seq_ui <- renderUI({
-    req(nrow(detail_orf()) > 0)
-    seq <- detail_orf()$protein_seq
+    o   <- detail_orf()
+    req(nrow(o) > 0)
+    seq <- o$protein_seq
     if (is.na(seq) || !nzchar(seq))
       return(tags$em(class = "text-muted", "No protein sequence available."))
 
@@ -3737,13 +4030,22 @@ server <- function(input, output, session) {
   output$dl_report <- downloadHandler(
     filename = function() paste0("titan_report_", format(Sys.time(), "%Y%m%d_%H%M"), ".html"),
     content  = function(file) {
+      # shiny::validate() silently aborts inside downloadHandler (not caught the
+      # same way as in render functions), producing an empty file. Use explicit
+      # stop() instead so Shiny writes the error to the server log and the
+      # browser receives the error response rather than a 0-byte download.
       sel <- prio_selected_rowids()
-      shiny::validate(shiny::need(length(sel) > 0, "No candidates selected."),
-                      shiny::need(isTRUE(started_rv()), "Run START first."))
+      if (length(sel) == 0L)
+        stop("No candidates selected. Go to the Prioritization tab and check candidates first.")
+      if (!isTRUE(started_rv()))
+        stop("Matching has not been run yet. Load data and peptides first.")
 
-      gdata <- gene_prioritised_data()
+      gdata <- tryCatch(gene_prioritised_data(), error = function(e) NULL)
+      if (is.null(gdata))
+        stop("Could not retrieve prioritised data — try reloading the study.")
       rows  <- gdata[gdata$.row_id %in% sel, , drop = FALSE]
-      shiny::validate(shiny::need(nrow(rows) > 0, "Selected rows not found."))
+      if (nrow(rows) == 0L)
+        stop("Selected row IDs not found in the current prioritised data.")
 
       rna_mat   <- tryCatch(rna_tpm_rv(),        error = function(e) NULL)
       rna_meta  <- tryCatch(rna_meta_rv(),        error = function(e) NULL)
@@ -3788,16 +4090,30 @@ server <- function(input, output, session) {
           pep_list <- if (!is.null(md))
             unique(md$matched_peptide[md$orf_id == row$orf_id])
           else character(0)
-          pages[[i]] <- .rpt_build_page(
-            row         = row,
-            pep_list    = pep_list,
-            rna_mat     = rna_mat,  rna_meta  = rna_meta,
-            gtex_mat    = gtex_mat, gtex_meta = gtex_meta,
-            tcga_mat    = tcga_mat, tcga_meta = tcga_meta,
-            ribo_m      = ribo_m,   ribo_sm   = ribo_sm,
-            rc_mat      = rc_mat,   rc_meta   = rc_meta,
-            logo_uri    = logo_uri, vh_logo_uri = vh_logo_uri,
-            gen_date    = gen_date, log_scale   = log_scale
+          pages[[i]] <- tryCatch(
+            .rpt_build_page(
+              row         = row,
+              pep_list    = pep_list,
+              rna_mat     = rna_mat,  rna_meta  = rna_meta,
+              gtex_mat    = gtex_mat, gtex_meta = gtex_meta,
+              tcga_mat    = tcga_mat, tcga_meta = tcga_meta,
+              ribo_m      = ribo_m,   ribo_sm   = ribo_sm,
+              rc_mat      = rc_mat,   rc_meta   = rc_meta,
+              logo_uri    = logo_uri, vh_logo_uri = vh_logo_uri,
+              gen_date    = gen_date, log_scale   = log_scale
+            ),
+            error = function(e) {
+              sprintf(
+                '<div class="rpt-slide"><div class="rpt-inner" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px">
+                   <p style="font-size:14pt;font-weight:700;color:#b33e3e">Page generation failed</p>
+                   <p style="font-size:10pt;color:#555">Candidate: <b>%s</b> (%s)</p>
+                   <p style="font-family:monospace;font-size:9pt;color:#333;max-width:80%%">%s</p>
+                 </div></div>',
+                htmltools::htmlEscape(row$gene_name %||% "?"),
+                htmltools::htmlEscape(row$orf_id    %||% "?"),
+                htmltools::htmlEscape(conditionMessage(e))
+              )
+            }
           )
         }
 

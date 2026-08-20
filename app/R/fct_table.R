@@ -32,20 +32,47 @@ make_expand_cell <- function(count, items_str) {
   )
 }
 
+# Vectorised over the WHOLE items_str column in one pass instead of one R call
+# (strsplit + nested vapply) per row - at thousands of matched-peptide-group
+# rows the old per-row make_peptide_cell() was the one column in this file
+# that never got the same treatment as score_bar_html/spec_badge_html/etc.
+# (see prio_table_df() comment in app.R), and dominated table build time.
 make_peptide_cell <- function(items_str) {
-  items <- trimws(strsplit(as.character(items_str), ",\\s*")[[1]])
-  mono  <- function(s) sprintf('<span class="font-monospace" style="font-size:10px">%s</span>', s)
-  if (length(items) <= 1L) return(mono(items[1]))
-  n_more   <- length(items) - 1L
-  all_html <- paste(vapply(items[-1], mono, character(1)), collapse = "<br>")
-  paste0(
-    mono(items[1]),
-    ' <span class="titan-pep-more">and ', n_more, ' more...</span>',
-    '<span class="titan-pep-less" style="display:none">less</span>',
-    '<div class="titan-pep-extra" style="display:none; margin-top:3px; line-height:1.7">',
-    all_html,
-    '</div>'
-  )
+  items_str <- as.character(items_str)
+  # "" / NA marks an unmatched ORF (no peptide evidence at all - see the
+  # prio_include_unmatched path in prioritised_data(), app.R). strsplit("")
+  # behavior isn't relied on here; handled explicitly below instead.
+  is_empty <- is.na(items_str) | !nzchar(trimws(items_str))
+  mono <- function(s) sprintf('<span class="font-monospace" style="font-size:10px">%s</span>', s)
+
+  split_list <- strsplit(items_str, ",\\s*")
+  n_items    <- lengths(split_list)
+  first_item <- vapply(split_list, function(x) if (length(x)) x[1] else NA_character_, character(1))
+  out        <- mono(trimws(first_item))
+
+  multi <- which(n_items > 1L)
+  if (length(multi) > 0L) {
+    extra_items <- lapply(split_list[multi], function(x) trimws(x[-1]))
+    extra_rep   <- rep(seq_along(multi), lengths(extra_items))
+    extra_flat  <- unlist(extra_items, use.names = FALSE)
+    extra_html  <- mono(extra_flat)
+    # factor(levels=) keeps rows in `multi` order - split()'s default
+    # character-sort on unfactored group keys would otherwise scramble
+    # order past 9 groups (e.g. "10" sorting before "2").
+    by_row  <- split(extra_html, factor(extra_rep, levels = seq_along(multi)))
+    all_html <- vapply(by_row, paste, character(1), collapse = "<br>")
+    n_more   <- n_items[multi] - 1L
+    out[multi] <- paste0(
+      out[multi],
+      ' <span class="titan-pep-more">and ', n_more, ' more...</span>',
+      '<span class="titan-pep-less" style="display:none">less</span>',
+      '<div class="titan-pep-extra" style="display:none; margin-top:3px; line-height:1.7">',
+      all_html,
+      '</div>'
+    )
+  }
+  out[is_empty] <- '<span class="text-muted fst-italic" style="font-size:11px">No peptide evidence</span>'
+  out
 }
 
 make_child_rows_html <- function(orfs_df) {
@@ -74,7 +101,7 @@ make_child_rows_html <- function(orfs_df) {
   r2 <- function(x) ifelse(is.na(x) | !is.finite(x), "&mdash;", sprintf("%.2f", x))
   r1 <- function(x) ifelse(is.na(x) | !is.finite(x), "&mdash;", sprintf("%.1f", x))
   r3 <- function(x) ifelse(is.na(x) | !is.finite(x), "&mdash;", sprintf("%.3f", x))
-  pep_html <- vapply(orfs_df$matched_peptides, make_peptide_cell, character(1), USE.NAMES = FALSE)
+  pep_html <- make_peptide_cell(orfs_df$matched_peptides)
   loc_html <- paste0(
     orfs_df$chr, ':', formatC(orfs_df$orf_start, format = "d", big.mark = ","),
     '&ndash;', formatC(orfs_df$orf_end, format = "d", big.mark = ","),
