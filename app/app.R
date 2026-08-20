@@ -630,26 +630,39 @@ ui <- page_navbar(
         )
       ),
 
-      layout_columns(
-        col_widths = c(6, 6),
-        gap = "1rem",
+      navset_card_tab(
+        id = "data_subtab",
 
-        card(
-          card_header(
-            class = "d-flex align-items-center justify-content-between",
-            tags$span("ORF candidates"),
-            uiOutput("orf_status_badge", inline = TRUE)
-          ),
-          card_body(uiOutput("orf_source_ui"))
+        nav_panel(
+          "Study library", icon = icon("book-open"),
+          card_body(
+            div(class = "d-flex justify-content-end mb-2",
+                uiOutput("orf_status_badge", inline = TRUE)),
+            uiOutput("orf_source_ui")
+          )
         ),
 
-        card(
-          card_header(
-            class = "d-flex align-items-center justify-content-between",
-            tags$span("MS peptides"),
-            uiOutput("ms_status_badge", inline = TRUE)
-          ),
-          card_body(uiOutput("ms_panel_ui"))
+        nav_panel(
+          "Upload data", icon = icon("upload"),
+          card_body(
+            layout_columns(
+              col_widths = c(6, 6),
+              gap = "1rem",
+
+              div(
+                div(class = "d-flex justify-content-between align-items-start mb-2",
+                    tags$b("ORF candidates"),
+                    uiOutput("orf_upload_status_badge", inline = TRUE)),
+                uiOutput("orf_upload_ui")
+              ),
+              div(
+                div(class = "d-flex justify-content-between align-items-start mb-2",
+                    tags$b("MS peptides"),
+                    uiOutput("ms_status_badge", inline = TRUE)),
+                uiOutput("ms_panel_ui")
+              )
+            )
+          )
         )
       ),
 
@@ -923,7 +936,6 @@ server <- function(input, output, session) {
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
   app_data_rv    <- reactiveVal(NULL)
-  show_upload_rv <- reactiveVal(FALSE)
 
   # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
   # Per-orf session caches; all keyed by orf_id.
@@ -1291,42 +1303,40 @@ server <- function(input, output, session) {
   })
 
   output$orf_source_ui <- renderUI({
-    show_upload <- show_upload_rv()
     ct_choices     <- c("All cancer types" = "ALL",
                         sort(unique(na.omit(STUDY_CATALOG$cancer_type))))
     cohort_choices <- c("All cohorts" = "ALL",
                         sort(unique(na.omit(STUDY_CATALOG$cohort))))
     div(
-      # Toggle buttons: Study Library | Upload Data
-      div(class = "d-flex gap-2 mb-3",
-        actionButton("show_library_btn", tagList(icon("book-open"), " Study Library"),
-                     class = paste("btn-sm",
-                                   if (!show_upload) "titan-toggle-active" else "titan-toggle-inactive")),
-        actionButton("show_upload_btn", tagList(icon("upload"), " Upload Data"),
-                     class = paste("btn-sm",
-                                   if (show_upload) "titan-toggle-active" else "titan-toggle-inactive"))
+      div(class = "mb-2",
+        textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
       ),
-      if (!show_upload) {
-        div(
-          div(class = "mb-2",
-            textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
-          ),
-          div(class = "d-flex gap-2 mb-2",
-            selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
-            selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
-          ),
-          div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
-            uiOutput("catalog_study_list")
-          )
-        )
-      } else {
-        div(class = "mt-1",
-          fileInput("user_rds_file", NULL, accept = ".rds",
-                    buttonLabel = "Browse…",
-                    placeholder = "titan_<study_id>.rds")
-        )
-      }
+      div(class = "d-flex gap-2 mb-2",
+        selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
+        selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
+      ),
+      div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
+        uiOutput("catalog_study_list")
+      )
     )
+  })
+
+  # Upload data sub-tab: manual ORF RDS upload (separate from the Study
+  # library sub-tab; each has its own status badge since the two paths are
+  # independent ways to populate app_data_rv()).
+  output$orf_upload_ui <- renderUI({
+    div(class = "mt-1",
+      fileInput("user_rds_file", NULL, accept = ".rds",
+                buttonLabel = "Browse…",
+                placeholder = "titan_<study_id>.rds")
+    )
+  })
+
+  output$orf_upload_status_badge <- renderUI({
+    if (!is.null(app_data_rv()))
+      tags$span(class = "titan-status-badge titan-status-ready", "Ready")
+    else
+      tags$span(class = "titan-status-badge titan-status-awaiting", "Awaiting data")
   })
 
   # One observer per catalog entry, registered at session start
@@ -1383,13 +1393,6 @@ server <- function(input, output, session) {
     })
   })
 
-  observeEvent(input$show_library_btn, {
-    show_upload_rv(FALSE)
-  }, ignoreInit = TRUE)
-
-  observeEvent(input$show_upload_btn, {
-    show_upload_rv(TRUE)
-  }, ignoreInit = TRUE)
 
   output$ms_panel_ui <- renderUI({
     ms   <- tryCatch(ms_data(), error = function(e) NULL)
@@ -1463,7 +1466,6 @@ server <- function(input, output, session) {
     app_data_rv(NULL)
     all_matches_rv(NULL)
     started_rv(FALSE)
-    show_upload_rv(FALSE)
     # Clear MS data only if it was auto-loaded with this study (not a manual upload)
     if (identical(ms_upload_info_rv()$source, "auto")) {
       user_ms_rv(NULL)
