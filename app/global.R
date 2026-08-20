@@ -524,8 +524,8 @@ WEIGHT_META <- list(
 )
 
 PRESETS <- list(
-  "Cancer-specific" = list(label = "Strict tumor specificity, penalises normal tissue", color = "#FFBEFF"),
-  "Pan-cancer"      = list(label = "Broad coverage, tolerates enriched targets",        color = "#2F3D46")
+  "Cancer-specific" = list(label = "Strict tumor-type specificity, penalises normal tissue", color = "#FFBEFF"),
+  "Pan-cancer"      = list(label = "Broad tumor coverage, penalises normal tissue",        color = "#2F3D46")
 )
 
 # ─────────────────────────────────────────────────────────────────────────────

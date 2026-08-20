@@ -647,7 +647,7 @@ ui <- page_navbar(
           card_body(
             layout_columns(
               col_widths = c(6, 6),
-              gap = "1rem",
+              gap = "2.5rem",
 
               div(
                 div(class = "d-flex justify-content-between align-items-start mb-2",
@@ -831,10 +831,10 @@ ui <- page_navbar(
               card_header(
                 class = "d-flex align-items-center justify-content-between",
                 tags$span("Ribo-seq coverage on target"),
-                tags$small(class = "text-muted fst-italic me-1", "Placeholder")
+                tags$small(class = "text-muted fst-italic me-1", "Feature under developement")
               ),
               card_body(
-                p(class = "text-muted small mb-1", "Placeholder")
+                p(class = "text-muted small mb-1", "Coming soon: ribo-seq coverage plots on the target peptide region, with P-site mapping and codon-level resolution.")
               )
             )
           )
@@ -935,7 +935,8 @@ ui <- page_navbar(
 server <- function(input, output, session) {
 
   # ── Reactive data (NULL until user loads; replaced on upload) ───────────────
-  app_data_rv    <- reactiveVal(NULL)
+  app_data_rv      <- reactiveVal(NULL)
+  orf_upload_info_rv <- reactiveVal(NULL)   # list(name, timestamp, source) - mirrors ms_upload_info_rv
 
   # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
   # Per-orf session caches; all keyed by orf_id.
@@ -1307,13 +1308,15 @@ server <- function(input, output, session) {
                         sort(unique(na.omit(STUDY_CATALOG$cancer_type))))
     cohort_choices <- c("All cohorts" = "ALL",
                         sort(unique(na.omit(STUDY_CATALOG$cohort))))
-    div(
-      div(class = "mb-2",
-        textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%")
-      ),
-      div(class = "d-flex gap-2 mb-2",
-        selectInput("catalog_ct_filter", NULL, width = "150px", choices = ct_choices),
-        selectInput("catalog_cohort_filter", NULL, width = "140px", choices = cohort_choices)
+    layout_columns(
+      col_widths = c(4, 8),
+      gap = "1.5rem",
+
+      div(
+        class = "titan-catalog-filters",
+        textInput("catalog_search", NULL, placeholder = "Search studies…", width = "100%"),
+        selectInput("catalog_ct_filter",     NULL, width = "100%", choices = ct_choices),
+        selectInput("catalog_cohort_filter", NULL, width = "100%", choices = cohort_choices)
       ),
       div(style = "max-height:320px;overflow-y:auto;padding-right:2px;",
         uiOutput("catalog_study_list")
@@ -1325,11 +1328,49 @@ server <- function(input, output, session) {
   # library sub-tab; each has its own status badge since the two paths are
   # independent ways to populate app_data_rv()).
   output$orf_upload_ui <- renderUI({
-    div(class = "mt-1",
-      fileInput("user_rds_file", NULL, accept = ".rds",
+    dat  <- app_data_rv()
+    info <- orf_upload_info_rv()
+
+    if (is.null(dat)) {
+      # ── Upload form ────────────────────────────────────────────────────────
+      fileInput("user_rds_file", "Upload ORF candidates RDS",
+                accept      = ".rds",
                 buttonLabel = "Browse…",
-                placeholder = "titan_<study_id>.rds")
-    )
+                placeholder = "titan_<study_id>.rds",
+                width       = "100%")
+    } else {
+      # ── Loaded state — mirrors MS peptides active-card pattern ─────────────
+      # (source: "catalog" = loaded via Study Library, "upload" = this manual
+      # fileInput; either way app_data_rv() is populated the same way.)
+      n_orfs_str <- formatC(nrow(dat$orf_table), big.mark = ",", format = "d")
+
+      label <- if (!is.null(info)) {
+        if (identical(info$source, "catalog"))
+          paste0("Study Library — ", info$name)
+        else
+          info$name
+      } else "Loaded RDS"
+
+      ts_str <- if (!is.null(info)) format(info$timestamp, "%Y-%m-%d %H:%M") else NULL
+
+      div(class = "titan-study-active",
+        div(class = "d-flex justify-content-between align-items-start",
+          div(
+            tags$p(class = "mb-1 fw-semibold",
+                   icon("file-lines"), " ", label),
+            div(class = "d-flex gap-2 mt-1 flex-wrap align-items-center",
+              tags$span(class = "badge rounded-pill text-bg-light border",
+                        paste0(n_orfs_str, " ORFs")),
+              if (!is.null(ts_str))
+                tags$small(class = "text-muted", ts_str)
+            )
+          ),
+          actionButton("clear_rds", NULL, icon = icon("trash"),
+                       class = "btn-sm btn-outline-danger flex-shrink-0",
+                       title = "Clear ORF data")
+        )
+      )
+    }
   })
 
   output$orf_upload_status_badge <- renderUI({
@@ -1364,6 +1405,7 @@ server <- function(input, output, session) {
         setProgress(1)
         dat <- fl32_to_dbl(dat)
         app_data_rv(dat)
+        orf_upload_info_rv(list(name = entry$display_name, timestamp = Sys.time(), source = "catalog"))
         gc(verbose = FALSE)
       })
     }, ignoreInit = TRUE)
@@ -1389,6 +1431,7 @@ server <- function(input, output, session) {
       setProgress(1)
       dat <- fl32_to_dbl(dat)
       app_data_rv(dat)
+      orf_upload_info_rv(list(name = input$user_rds_file$name, timestamp = Sys.time(), source = "upload"))
       gc(verbose = FALSE)
     })
   })
@@ -1403,7 +1446,8 @@ server <- function(input, output, session) {
       fileInput("ms_file", "Upload MS results file",
                 accept      = c(".csv", ".tsv", ".txt"),
                 buttonLabel = "Browse…",
-                placeholder = "peptides.csv / .tsv")
+                placeholder = "peptides.csv / .tsv",
+                width       = "100%")
     } else {
       # ── Loaded state — mirrors ORF candidates active-card pattern ──────────
       pep_col_auto <- tryCatch(auto_pep_col(), error = function(e) NULL)
@@ -1464,6 +1508,7 @@ server <- function(input, output, session) {
 
   observeEvent(input$clear_rds, {
     app_data_rv(NULL)
+    orf_upload_info_rv(NULL)
     all_matches_rv(NULL)
     started_rv(FALSE)
     # Clear MS data only if it was auto-loaded with this study (not a manual upload)
