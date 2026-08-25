@@ -131,6 +131,22 @@ body {
 
 .navbar-brand span { letter-spacing: .03em; }
 
+/* ── User avatar (navbar, right) ─────────────────────────────────────────── */
+.titan-user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: var(--clr-primary);
+  font-weight: 700;
+  font-size: .8rem;
+  line-height: 1;
+}
+.titan-user-menu-info { padding: .35rem 1rem; white-space: nowrap; }
+
 /* Bootstrap 5 applies margin-top:-1rem to all <footer> elements (a blockquote
    citation holdover). bslib also marks footer as html-fill-item (flex-grow:1),
    which causes it to stretch and overlap content.

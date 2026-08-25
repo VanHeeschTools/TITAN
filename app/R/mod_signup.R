@@ -1,19 +1,32 @@
-## Self-service sign-up module (email + password + confirm password).
+## Self-service sign-up module (email + password + confirm password, plus an
+## optional catalog-access request).
 ##
 ## shinymanager has no built-in sign-up form, so this is injected into the
-## login screen via secure_app(tags_bottom = ...) in app.R, hidden by default
-## and toggled against the login fields with plain JS (see .signup_toggle_js
-## in app.R) — no shinyjs dependency needed for a single show/hide toggle.
-## New accounts always get role = 'general'.
+## login screen's "Sign up" pane (see .auth_tabs_close in app.R, which wraps
+## this in a <div id="titan-tab-signup-pane"> toggled by .auth_tab_toggle_js).
+## New accounts always get role = 'general'; checking "I need catalog access"
+## immediately files a request via submit_catalog_request() (R/catalog_access.R
+## — the same function/table the post-login "request access" flow uses), so
+## it shows up in the admin's pending-requests queue (R/mod_admin_requests.R)
+## right away instead of requiring a second trip through that flow.
 
 mod_signup_ui <- function(id) {
   ns <- NS(id)
-  tags$div(
-    id = "titan-signup-panel", style = "display:none; text-align:left;",
-    tags$br(),
+  tagList(
+    # autocomplete is patched onto these fields via JS (.auth_autocomplete_js
+    # in app.R) - this Shiny version's textInput()/passwordInput() validate
+    # `...` as empty (no pass-through HTML attrs), and tagAppendAttributes()
+    # would land on the outer wrapper div, not the actual <input>.
     textInput(ns("email"), "Email:", width = "100%"),
     passwordInput(ns("password"), "Password (min 8 characters):", width = "100%"),
     passwordInput(ns("password_confirm"), "Confirm password:", width = "100%"),
+    tags$hr(),
+    checkboxInput(ns("want_catalog_access"),
+                  "I need catalog access (browse the study library)",
+                  value = FALSE),
+    textAreaInput(ns("justification"), "Why do you need catalog access? (optional)",
+                  rows = 2, width = "100%",
+                  placeholder = "e.g. study/team, what you'll use it for"),
     tags$div(
       style = "text-align:center;",
       actionButton(ns("submit"), "Sign up", width = "100%", class = "btn-primary"),
@@ -61,10 +74,22 @@ mod_signup_server <- function(id, db_path) {
         return(invisible(NULL))
       }
 
-      showNotification("Account created — you can now log in.", type = "message", duration = 6)
+      account_msg <- "Account created — you can now log in."
+      if (isTRUE(input$want_catalog_access)) {
+        justification <- trimws(input$justification)
+        req_result <- submit_catalog_request(
+          db_path, email,
+          justification = if (nzchar(justification)) justification else NA_character_
+        )
+        account_msg <- paste(account_msg, req_result$message)
+      }
+
+      showNotification(account_msg, type = "message", duration = 8)
       updateTextInput(session, "email", value = "")
       updateTextInput(session, "password", value = "")
       updateTextInput(session, "password_confirm", value = "")
+      updateCheckboxInput(session, "want_catalog_access", value = FALSE)
+      updateTextAreaInput(session, "justification", value = "")
     })
   })
 }

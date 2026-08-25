@@ -376,83 +376,266 @@ catalog_tab_ui <- function() {
 # ─────────────────────────────────────────────────────────────────────────────
 # shinymanager's login form lives under module id "auth" (hardcoded by
 # secure_app()), so its fields are #auth-user_input / #auth-container-btn-ok /
-# #auth-shinymanager-auth-head. Plain JS toggle (no shinyjs dependency) swaps
-# those out for the sign-up panel injected via tags_bottom below.
-.signup_toggle_link <- tags$div(
-  style = "text-align:center; margin-top:10px;",
-  tags$a(id = "titan-toggle-link", href = "#", "Don't have an account? Sign up")
+# #auth-shinymanager-auth-head.
+#
+# secure_app() only exposes two injection points inside its own fixed
+# panel-body markup: tags_top (rendered immediately before shinymanager's own
+# <h3> heading) and tags_bottom (rendered immediately after the result-message
+# div). There's no hook to add content *outside* that panel at all, and
+# critically: shinymanager wraps the <h3> in its OWN
+# <div style="text-align:center;">...</div> that closes right after the
+# heading - so an unclosed <div> opened in tags_top (attempting to span
+# through to tags_bottom, wrapping the fields/button in between as a real
+# Bootstrap tab-pane) gets closed BY THAT DIV'S OWN CLOSING TAG instead
+# (HTML always closes the innermost open tag), leaving the actual login
+# fields outside any wrapper - always visible regardless of "active" tab
+# state. Confirmed by inspecting the rendered page directly: both the login
+# and sign-up sections showed at once. Real Bootstrap tab-pane markup doesn't
+# survive that gap, so this instead reuses the reliable approach the pre-hero
+# version of this screen already used: a real nav-tabs-styled header for
+# looks, but plain JS show/hide (matching known element ids) for the actual
+# toggle - the header's ids are unique to this widget so they can't collide
+# with anything shinymanager itself generates.
+.auth_hero <- tags$div(
+  class = "titan-hero",
+  tags$img(src = "titan_logo_blue.svg", class = "titan-hero-logo", alt = "TITAN"),
+  tags$div(
+    class = "titan-hero-text",
+    tags$h1(class = "titan-hero-title", "Tumor Immunopeptidomics Target Atlas of Non-canonical ORFs"),
+    tags$p(class = "titan-hero-subtitle",
+           "A tool for exploring and prioritizing tumor-specific ncORF translation products, integrating ribo-seq, RNA-seq, and reference databases across study cohorts.")
+  )
 )
 
-.signup_toggle_js <- tags$script(HTML("
+.auth_tabs_header <- tags$ul(
+  class = "nav nav-tabs titan-auth-tabs",
+  tags$li(id = "titan-tab-login-li", class = "active",
+          tags$a(id = "titan-tab-login-link", href = "#", "Log in")),
+  tags$li(id = "titan-tab-signup-li",
+          tags$a(id = "titan-tab-signup-link", href = "#", "Sign up"))
+)
+
+.auth_tabs_open <- tagList(.auth_hero, .auth_tabs_header)
+
+.auth_tab_toggle_js <- tags$script(HTML("
 (function () {
   function el(id) { return document.getElementById(id); }
-  function showSignup() {
-    el('auth-user_input').style.display = 'none';
-    el('auth-container-btn-ok').style.display = 'none';
-    el('titan-signup-panel').style.display = 'block';
-    el('auth-shinymanager-auth-head').innerText = 'Create an account';
-    el('titan-toggle-link').innerText = 'Already have an account? Log in';
-  }
+  // shinymanager renders two bare <br/> tags with no id/class of their own
+  // as siblings around #auth-user_input/#auth-container-btn-ok (one between
+  // them, one right after) - toggling those two divs alone leaves the <br/>s
+  // always visible, showing as blank space above the sign-up pane. Grabbed
+  // by DOM position (their only handle) so they can be toggled alongside.
+  var br1 = el('auth-user_input') ? el('auth-user_input').nextElementSibling : null;
+  var br2 = el('auth-container-btn-ok') ? el('auth-container-btn-ok').nextElementSibling : null;
   function showLogin() {
     el('auth-user_input').style.display = 'block';
     el('auth-container-btn-ok').style.display = 'block';
-    el('titan-signup-panel').style.display = 'none';
-    el('auth-shinymanager-auth-head').innerText = 'Please authenticate';
-    el('titan-toggle-link').innerText = \"Don't have an account? Sign up\";
+    if (br1) br1.style.display = '';
+    if (br2) br2.style.display = '';
+    el('titan-tab-signup-pane').style.display = 'none';
+    el('titan-tab-login-li').className = 'active';
+    el('titan-tab-signup-li').className = '';
+  }
+  function showSignup() {
+    el('auth-user_input').style.display = 'none';
+    el('auth-container-btn-ok').style.display = 'none';
+    if (br1) br1.style.display = 'none';
+    if (br2) br2.style.display = 'none';
+    el('titan-tab-signup-pane').style.display = 'block';
+    el('titan-tab-login-li').className = '';
+    el('titan-tab-signup-li').className = 'active';
   }
   document.addEventListener('click', function (e) {
-    if (e.target && e.target.id === 'titan-toggle-link') {
-      e.preventDefault();
-      var showingSignup = el('titan-signup-panel').style.display === 'block';
-      if (showingSignup) showLogin(); else showSignup();
-    }
+    if (e.target && e.target.id === 'titan-tab-login-link')  { e.preventDefault(); showLogin(); }
+    if (e.target && e.target.id === 'titan-tab-signup-link') { e.preventDefault(); showSignup(); }
   });
 })();
 "))
 
-# shinymanager ships its own bootstrap 3 theme (readable.min.css), entirely
-# separate from titan_theme (bslib/bootstrap 5) used post-login — so brand
-# matching here means overriding shinymanager's classes directly, plus
-# loading the same Google Fonts titan_theme uses (bslib only applies
-# font_google() to the main app UI, not this pre-auth screen).
-.auth_head <- tagList(
-  tags$link(rel = "stylesheet",
-            href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans:wght@600;700&display=swap"),
-  tags$style(HTML("
-    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .panel-auth .panel {
-      border: none;
-      border-radius: 14px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-      overflow: hidden;
-    }
-    .panel-auth .panel-primary { border-color: #2F3D46; }
-    .panel-auth .panel-body { padding: 2rem 2.25rem; }
-    .panel-auth h3 {
-      font-family: 'IBM Plex Sans', sans-serif;
-      font-weight: 600;
-      color: #2F3D46;
-      font-size: 1.3rem;
-    }
-    .panel-auth .btn-primary {
-      background-color: #2F3D46;
-      border-color: #2F3D46;
-    }
-    .panel-auth .btn-primary:hover {
-      background-color: #3d505c;
-      border-color: #3d505c;
-    }
-    .panel-auth input.form-control:focus {
-      border-color: #2F3D46;
-      box-shadow: 0 0 0 0.2rem rgba(47,61,70,0.25);
-    }
-    #titan-toggle-link { color: #2F3D46; font-size: 0.9rem; text-decoration: none; }
-    #titan-toggle-link:hover { text-decoration: underline; }
-    #titan-auth-logo { display: block; height: 44px; margin: 0 auto 14px auto; }
-  "))
+# Sign-up form, fully wrapped/closed here (no unbalanced-HTML tricks needed -
+# this div is entirely under our control, unlike shinymanager's own markup
+# above), hidden by default and toggled by .auth_tab_toggle_js above.
+.auth_tabs_close <- tagList(
+  tags$div(id = "titan-tab-signup-pane", style = "display:none;",
+           mod_signup_ui("signup")),
+  .auth_tab_toggle_js
 )
 
-.auth_logo <- tags$img(id = "titan-auth-logo", src = "titan_logo_blue.svg", alt = "TITAN")
+# Neither shinymanager's login fields (#auth-user_id, #auth-user_pwd,
+# generated entirely inside the package's own auth_ui()) nor the sign-up
+# fields (mod_signup.R - this Shiny version validates textInput()/
+# passwordInput()'s `...` as empty, so no attr pass-through, and
+# tagAppendAttributes() would land on the wrapper div, not the <input>)
+# can have autocomplete= set from R, so this patches it directly once the
+# DOM is ready. autocomplete="new-password" on password fields (not "off",
+# which Chrome/Safari/Bitwarden largely ignore for password inputs) is the
+# standard trick that stops them treating a repeatedly-reloaded dev login/
+# signup screen as "a saved credential to offer autofill for" on every load.
+.auth_autocomplete_js <- tags$script(HTML("
+document.addEventListener('DOMContentLoaded', function () {
+  var offIds = ['auth-user_id', 'signup-email'];
+  var newPwIds = ['auth-user_pwd', 'signup-password', 'signup-password_confirm'];
+  offIds.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.setAttribute('autocomplete', 'off');
+  });
+  newPwIds.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.setAttribute('autocomplete', 'new-password');
+  });
+});
+"))
+
+# shinymanager ships its own bootstrap 3 theme (readable.min.css), entirely
+# separate from titan_theme (bslib/bootstrap 5) used post-login. Rather than
+# hand-rolling a one-off look, this loads titan.css itself (a plain static
+# asset under www/ — confirmed reachable pre-auth, same as titan_logo_blue.svg
+# below) so the login panel can reference the app's real design tokens
+# (--clr-primary, --clr-bg-card, --clr-border) and stay in sync automatically
+# if those ever change. The panel is then restyled to look like one of the
+# app's own .card/.card-header components (see e.g. the Data tab's upload
+# cards) instead of shinymanager's default panel — same 8px radius, subtle
+# shadow, light card-header background, Manrope type. Manrope itself still
+# needs its own Google Fonts link here since bslib's font_google() only
+# attaches to the main post-login page, not this screen.
+.auth_head <- tagList(
+  tags$link(rel = "stylesheet", href = "titan.css"),
+  tags$link(rel = "stylesheet",
+            href = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap"),
+  tags$style(HTML("
+    body {
+      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f8f9fa;
+      font-size: 16px;
+    }
+    /* Widen + center shinymanager's hardcoded col-sm-4 column - too narrow
+       for a hero + tabbed card layout (its own offset-md-4/col-sm-offset-4
+       classes get overridden wholesale by the fixed width + auto margin
+       below, so this works regardless of which of those actually applied). */
+    .panel-auth .row > div[class*='col-sm-4'] {
+      float: none;
+      width: 800px;
+      max-width: 70vw;
+      margin: 0 auto;
+    }
+    /* Bootstrap 3 sets its own explicit font-size on these, overriding the
+       body bump above - restated here so labels/inputs/buttons actually
+       read larger rather than staying at BS3's 14px default. !important
+       because titan.css (loaded on this page for the card-matching styles
+       elsewhere) has a global `.shiny-bound-input { font-size: .8rem
+       !important; }` rule for the compact post-login app UI - Shiny adds
+       that class to every bound input client-side, including these, so a
+       plain (non-!important) rule here would lose to it once the page's JS
+       finishes binding. Still wins on specificity (tag+class beats a bare
+       single-class selector) among the two !important rules. */
+    .panel-auth label.control-label,
+    .panel-auth input.form-control,
+    .panel-auth textarea.form-control,
+    .panel-auth .checkbox label {
+      font-size: 16px !important;
+      font-weight: 500 !important;
+    }
+    /* Text fields: capped narrower than the (now wider) card and centered,
+       independent of the card's own width. text-align:center on the
+       .form-group also centers the label text sitting above each input. */
+    .panel-auth .form-group { text-align: center; }
+    .panel-auth input.form-control,
+    .panel-auth textarea.form-control {
+      max-width: 50%;
+      margin: 0 auto;
+      padding: .75rem .75rem !important;
+      line-height: 1.6 !important;
+    }
+
+    .panel-auth .checkbox {
+      width: 500px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    .panel-auth .panel {
+      border: 1px solid var(--clr-border);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+      overflow: hidden;
+    }
+    .panel-auth .panel-primary,
+    .panel-auth .panel-primary > .panel-heading {
+      border-color: var(--clr-border);
+    }
+    .panel-auth .panel-heading {
+      background: var(--clr-bg-card) !important;
+      border-bottom: 1px solid var(--clr-border) !important;
+      padding: .75rem 1.25rem;
+    }
+    .panel-auth .panel-body { padding: 1.5rem 1.5rem 1.75rem; }
+    /* Redundant with the 'Log in' tab label itself - shinymanager always
+       renders this heading, so it's hidden rather than left duplicating
+       the active tab's meaning. */
+    #auth-shinymanager-auth-head { display: none; }
+
+    .panel-auth .panel-body > div[style*='margin-top:-10px'] { display: none; }
+
+    .panel-auth .btn-primary {
+      background-color: var(--clr-primary);
+      border-color: var(--clr-primary);
+      border-radius: 6px;
+      width: 150px !important;
+      max-width: 40% !important;
+      display: block !important;
+      margin: 0 auto !important;
+      font-size: 16px !important; 
+      font-weight: 700 !important;
+    }
+    .panel-auth .btn-primary:hover {
+      background-color: var(--clr-primary-dark);
+      border-color: var(--clr-primary-dark);
+    }
+    .panel-auth input.form-control {
+      border-radius: 6px;
+      border: 1px solid var(--clr-border);
+    }
+    .panel-auth input.form-control:focus {
+      border-color: var(--clr-primary);
+      box-shadow: 0 0 0 0.2rem rgba(47,61,70,0.15);
+    }
+    /* Hero: reuses .titan-hero/-logo/-title/-subtitle from titan.css (same
+       classes as the Data tab's hero) at a smaller scale to fit the
+       narrower login column. */
+    .panel-auth .titan-hero { padding: 1.5rem 1rem .5rem; margin-bottom: 0; }
+    .panel-auth .titan-hero-logo { height: 6rem; margin-bottom: 10px; }
+    .panel-auth .titan-hero-title { font-size: 20px; }
+    .panel-auth .titan-hero-subtitle { font-size: 18px; margin-bottom: 10px; }
+    /* Tab strip: mirrors navset_card_tab's look (card-header-toned strip,
+       active tab reading as the card body's own color) since bslib's real
+       navset_card_tab can't run on this Bootstrap-3-only page. */
+    .titan-auth-tabs {
+      margin: 0 -1.5rem 0 -1.5rem;
+      padding: 0 1rem;
+      border-bottom: 1px solid var(--clr-border);
+      background: var(--clr-bg-card);
+    }
+    .titan-auth-tabs > li > a {
+      font-family: 'Manrope', sans-serif;
+      font-weight: 600;
+      font-size: 18px;
+      color: var(--clr-primary);
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      padding: .6rem .9rem;
+    }
+    .titan-auth-tabs > li.active > a,
+    .titan-auth-tabs > li.active > a:hover,
+    .titan-auth-tabs > li.active > a:focus {
+      background: #fff;
+      border: 1px solid var(--clr-border);
+      border-bottom-color: #fff;
+    }
+    .titan-auth-tabs > li > a:hover { background: var(--clr-hover); }
+    .titan-auth-tabpane { padding: 1.5rem 0 0; }
+  ")),
+  .auth_autocomplete_js
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI
@@ -1053,14 +1236,21 @@ ui <- secure_app(
     )
   )
   ),
-  tags_top = .auth_logo,
-  tags_bottom = tagList(
-    mod_signup_ui("signup"),
-    .signup_toggle_link,
-    .signup_toggle_js
-  ),
-  head_auth  = .auth_head,
-  background = "linear-gradient(135deg, #2F3D46 0%, #3d505c 100%)"
+  tags_top    = .auth_tabs_open,
+  tags_bottom = .auth_tabs_close,
+  head_auth   = .auth_head,
+  # shinymanager injects this verbatim as `.panel-auth {background:%s,#FFF;}`
+  # (confirmed by inspecting the actual rendered <head>) - it unconditionally
+  # appends a ",#FFF" fallback layer, and per the CSS background shorthand
+  # spec only the LAST comma-separated layer may be a flat color, so passing
+  # a plain hex here (e.g. "#f8f9fa") produces invalid CSS that the browser
+  # silently drops entirely, leaving .panel-auth - which covers most of the
+  # visible page - white. A one-stop-repeated gradient composes validly with
+  # the appended white layer while still rendering as a flat, uniform color:
+  # matches the app's own page background (bslib bs_theme(bg = "#f8f9fa") in
+  # titan_theme), so the panel reads as "a card sitting on the app's normal
+  # background" rather than a separate branded splash screen.
+  background = "linear-gradient(#f8f9fa, #f8f9fa)"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1110,6 +1300,41 @@ server <- function(input, output, session) {
       )
       mod_admin_requests_server("admin_requests", AUTH_DB_PATH)
       admin_tab_inserted(TRUE)
+    }
+  }, ignoreNULL = TRUE)
+
+  # ── User avatar (navbar, right) — email/role + logout ───────────────────────
+  # Same "insert once res_auth$user resolves" pattern as the Admin tab above:
+  # can't be a static nav_menu since the logged-in user isn't known until
+  # after login. The initial-letter avatar is baked into the title HTML at
+  # insertion time (not reactive) since it's inserted exactly once per
+  # session, right after res_auth$user first resolves.
+  # actionLink id is the literal ".shinymanager_logout" (no NS() prefix,
+  # inserted at top server level, not inside a module) - that's the exact
+  # input shinymanager's secure_server() listens for internally to log out.
+  user_menu_inserted <- reactiveVal(FALSE)
+  observeEvent(res_auth$user, {
+    if (!isolate(user_menu_inserted())) {
+      user_email <- res_auth$user
+      user_role  <- res_auth$role %||% "general"
+      initial    <- toupper(substr(user_email, 1, 1))
+
+      nav_insert(
+        "main_nav",
+        nav_menu(
+          title = tags$span(class = "titan-user-avatar", initial),
+          align = "right",
+          nav_item(tags$div(class = "titan-user-menu-info",
+            tags$div(class = "fw-semibold", user_email),
+            tags$div(class = "text-muted small", user_role)
+          )),
+          nav_item(tags$hr(class = "my-1")),
+          nav_item(actionLink(".shinymanager_logout", "Log out",
+                               icon = icon("right-from-bracket")))
+        ),
+        select = FALSE
+      )
+      user_menu_inserted(TRUE)
     }
   }, ignoreNULL = TRUE)
 
