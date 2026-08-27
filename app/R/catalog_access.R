@@ -1,6 +1,7 @@
 ## Catalog access request management: submit / list / approve / deny, and a
-## session-level role check. Backed by DBI/SQLite via R/db_utils.R
-## (safe_db_write / safe_db_read); schema in R/db_setup.R.
+## session-level role check. Backed by DBI via R/db_utils.R (safe_db_write /
+## safe_db_read), dialect-portable across DB_BACKEND=sqlite|postgres (see
+## R/db_backend.R); schema in R/db_setup.R.
 
 # Submit a pending catalog access request for `email`. Rejects with a friendly
 # message (does not throw) if a pending request already exists for that email.
@@ -64,7 +65,8 @@ grant_study_access <- function(db_path, user_email, study_ids, granted_by) {
   for (sid in study_ids) {
     result <- safe_db_write(
       db_path,
-      "INSERT OR IGNORE INTO study_access (user_email, study_id, granted_by) VALUES (?, ?, ?)",
+      sql_insert_or_ignore("study_access", c("user_email", "study_id", "granted_by"),
+                            c("user_email", "study_id")),
       params = list(user_email, sid, granted_by)
     )
     if (isFALSE(result)) all_ok <- FALSE
@@ -122,7 +124,7 @@ approve_request <- function(db_path, request_id, admin_email, study_ids) {
 
   status_result <- safe_db_write(
     db_path,
-    "UPDATE catalog_access_requests SET status = 'approved', decided_by = ?, decided_at = datetime('now') WHERE id = ?",
+    "UPDATE catalog_access_requests SET status = 'approved', decided_by = ?, decided_at = CAST(CURRENT_TIMESTAMP AS TEXT) WHERE id = ?",
     params = list(admin_email, request_id)
   )
   if (isFALSE(status_result)) {
@@ -176,7 +178,7 @@ deny_request <- function(db_path, request_id, admin_email) {
 
   result <- safe_db_write(
     db_path,
-    "UPDATE catalog_access_requests SET status = 'denied', decided_by = ?, decided_at = datetime('now') WHERE id = ?",
+    "UPDATE catalog_access_requests SET status = 'denied', decided_by = ?, decided_at = CAST(CURRENT_TIMESTAMP AS TEXT) WHERE id = ?",
     params = list(admin_email, request_id)
   )
   if (isFALSE(result)) {

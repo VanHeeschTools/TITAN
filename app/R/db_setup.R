@@ -1,42 +1,53 @@
 ## Auth database setup — schema creation and local test-admin seeding.
-## Depends on hash_password() from R/db_utils.R — callers must source that
-## first (not self-sourced here with a relative path: that breaks under
-## testthat, which runs tests with a different working directory).
+## Depends on hash_password() from R/db_utils.R and get_db_connection()/
+## db_backend() from R/db_backend.R — callers must source both first (not
+## self-sourced here with a relative path: that breaks under testthat, which
+## runs tests with a different working directory).
 ##
-## DB_PATH convention: the SQLite file lives wherever DB_PATH points —
-## ./local-data/auth.sqlite locally (docker-compose bind mount), overridden
-## to the gcsfuse mount path (e.g. /mnt/gcs-auth/auth.sqlite) on Cloud Run.
+## DB_PATH convention (DB_BACKEND=sqlite, the default): the SQLite file lives
+## wherever DB_PATH points — ./local-data/auth.sqlite locally (docker-compose
+## bind mount), overridden to the gcsfuse mount path (e.g.
+## /mnt/gcs-auth/auth.sqlite) on Cloud Run. With DB_BACKEND=postgres, db_path
+## is ignored — see R/db_backend.R for the PG* connection env vars.
+##
+## Schema is written to be dialect-portable where possible: CAST(CURRENT_TIMESTAMP
+## AS TEXT) works as both a column default and a value expression in both
+## engines (bare CURRENT_TIMESTAMP would default-insert fine on SQLite but
+## fail on Postgres — it returns timestamptz, which isn't implicitly
+## assignable into a TEXT column). The one place still branching on
+## db_backend() is the auto-increment id (SERIAL vs AUTOINCREMENT).
 
 library(DBI)
-library(RSQLite)
 
 # Create the `users` and `catalog_access_requests` tables if they don't already exist.
 create_auth_schema <- function(db_path) {
-  dir.create(dirname(db_path), recursive = TRUE, showWarnings = FALSE)
+  if (db_backend() == "sqlite") dir.create(dirname(db_path), recursive = TRUE, showWarnings = FALSE)
 
-  con <- dbConnect(RSQLite::SQLite(), db_path)
+  con <- get_db_connection(db_path)
   on.exit(dbDisconnect(con))
+
+  id_col <- if (db_backend() == "postgres") "id SERIAL PRIMARY KEY" else "id INTEGER PRIMARY KEY AUTOINCREMENT"
 
   dbExecute(con, "
     CREATE TABLE IF NOT EXISTS users (
       email         TEXT PRIMARY KEY,
       password_hash TEXT NOT NULL,
       role          TEXT NOT NULL DEFAULT 'general' CHECK (role IN ('general','catalog_access','admin')),
-      created_at    TEXT DEFAULT (datetime('now'))
+      created_at    TEXT DEFAULT (CAST(CURRENT_TIMESTAMP AS TEXT))
     )
   ")
 
-  dbExecute(con, "
+  dbExecute(con, sprintf("
     CREATE TABLE IF NOT EXISTS catalog_access_requests (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      %s,
       user_email     TEXT NOT NULL REFERENCES users(email),
       justification  TEXT,
       status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','denied')),
-      requested_at   TEXT DEFAULT (datetime('now')),
+      requested_at   TEXT DEFAULT (CAST(CURRENT_TIMESTAMP AS TEXT)),
       decided_by     TEXT,
       decided_at     TEXT
     )
-  ")
+  ", id_col))
 
   dbExecute(con, "
     CREATE UNIQUE INDEX IF NOT EXISTS one_pending_per_user
@@ -53,7 +64,7 @@ create_auth_schema <- function(db_path) {
       user_email  TEXT NOT NULL REFERENCES users(email),
       study_id    TEXT NOT NULL,
       granted_by  TEXT,
-      granted_at  TEXT DEFAULT (datetime('now')),
+      granted_at  TEXT DEFAULT (CAST(CURRENT_TIMESTAMP AS TEXT)),
       PRIMARY KEY (user_email, study_id)
     )
   ")
@@ -72,13 +83,13 @@ seed_test_admin <- function(db_path,
     return(invisible(FALSE))
   }
 
-  con <- dbConnect(RSQLite::SQLite(), db_path)
+  con <- get_db_connection(db_path)
   on.exit(dbDisconnect(con))
 
   dbExecute(
     con,
-    "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, 'admin')",
-    params = list(email, hash_password(password))
+    translate_placeholders(sql_insert_or_ignore("users", c("email", "password_hash", "role"), "email")),
+    params = list(email, hash_password(password), "admin")
   )
 
   message(sprintf("Seeded test admin '%s' (password: '%s') — local testing only.", email, password))

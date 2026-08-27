@@ -1267,12 +1267,6 @@ ui <- secure_app(
   # place it was pure duplicate UI. fab_button()'s own source treats "none"
   # as the documented way to suppress it (returns NULL).
   fab_position = "none",
-  # Without this, shinymanager has no way to recognize a returning browser
-  # across a fresh Shiny session (which a tab reload/new tab creates) and
-  # re-prompts for login every time. Setting this stores a token cookie
-  # (in the same AUTH_DB_PATH sqlite db check_credentials already uses) valid
-  # for this many days, so reloading within that window skips the login screen.
-  cookie_expiry = 1,
   # A one-stop-repeated gradient composes validly with
   # the appended white layer while still rendering as a flat, uniform color:
   # matches the app's own page background (bslib bs_theme(bg = "#f8f9fa") in
@@ -1287,13 +1281,26 @@ ui <- secure_app(
 
 server <- function(input, output, session) {
 
-  # ── Authentication (shinymanager + SQLite) ──────────────────────────────────
+  # ── Authentication (shinymanager + DB_BACKEND=sqlite|postgres) ─────────────
   # timeout = minutes of inactivity before logout (confirmed from shinymanager's
   # own is_valid_timeout(): difftime(..., units = "mins") <= private$timeout).
   # Default is 15; any Shiny input change/recalculation resets the clock
   # (assets/timeout.js), so this is idle time, not session age.
+  #
+  # keep_token = TRUE keeps shinymanager's auth token in the URL query string
+  # after login and re-authenticates from it on reload, instead of re-showing
+  # the login form (there is no cookie_expiry option in this shinymanager
+  # version — that's not a thing; the login-panel removal on success is a
+  # one-time removeUI(), not reactive to auth state, so this is shinymanager's
+  # own supported mechanism for surviving a reload, not something we could
+  # replicate by just flipping a flag ourselves). Documented trade-off (see
+  # ?shinymanager::secure_server): the token is visible in the URL, so it can
+  # be shared/leaked via a copied link, browser history, or a referrer header
+  # — accepted here for local dev; revisit before this auth flow goes to
+  # Cloud Run.
   res_auth <- secure_server(check_credentials = make_check_credentials(AUTH_DB_PATH),
-                             timeout = 60)
+                             timeout = 60,
+                             keep_token = TRUE)
   mod_signup_server("signup", AUTH_DB_PATH)
 
   # Bridge the auth reactive into session$userData so plain (non-reactive)

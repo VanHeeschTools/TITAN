@@ -1,3 +1,4 @@
+source(testthat::test_path("..", "..", "R", "db_backend.R"))
 source(testthat::test_path("..", "..", "R", "db_utils.R"))
 source(testthat::test_path("..", "..", "R", "db_setup.R"))
 source(testthat::test_path("..", "..", "R", "catalog_access.R"))

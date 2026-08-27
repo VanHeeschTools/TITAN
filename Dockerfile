@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
         libssl-dev \
         libxml2-dev \
+        libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # remotes is the pinning mechanism; install it first
@@ -27,7 +28,9 @@ RUN Rscript -e "\
   iv('shinyWidgets', '0.9.1')"
 
 # Unpinned utilities (no version constraint from local env)
-RUN Rscript -e "install.packages(c('cowplot', 'data.table', 'jsonlite', 'yaml', 'processx', 'XML', 'BiocManager', 'float', 'blastula', 'DBI', 'RSQLite', 'scrypt', 'shinymanager'), repos='https://cloud.r-project.org')"
+# RSQLite: DB_BACKEND=sqlite (local dev / current default).
+# RPostgres: DB_BACKEND=postgres (Cloud Run + Cloud SQL) — see R/db_backend.R.
+RUN Rscript -e "install.packages(c('cowplot', 'data.table', 'jsonlite', 'yaml', 'processx', 'XML', 'BiocManager', 'float', 'blastula', 'DBI', 'RSQLite', 'RPostgres', 'scrypt', 'shinymanager'), repos='https://cloud.r-project.org')"
 
 # Bioconductor packages — rBLAST is a Bioconductor package, not CRAN
 RUN Rscript -e "BiocManager::install(c('Biostrings', 'IRanges', 'rBLAST'), ask=FALSE, update=FALSE)"

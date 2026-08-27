@@ -1,4 +1,6 @@
 services:
+  # Default path: DB_BACKEND=sqlite, unchanged from before. `docker compose up`
+  # with no profile runs only this service.
   titan:
     build:
       context: .
@@ -8,13 +10,63 @@ services:
       - "3838:3838"
     environment:
       PORT: "3838"
-      # ./local-data/auth.sqlite (below) simulates the gcsfuse-mounted path
-      # Cloud Run will use in production.
+      DB_BACKEND: "sqlite"
+      # ./local-data/auth.sqlite (below) simulates the gcsfuse-mounted path;
+      # zero-setup local dev default. See the `postgres`/`titan-postgres`
+      # services below for testing against the networked-DB backend instead.
       DB_PATH: "./local-data/auth.sqlite"
       SEED_TEST_ADMIN: "true"
     volumes:
-      # Mimics the future gcsfuse volume mount onto a GCS bucket.
       - ./local-data:/srv/titan/local-data
     command: >
-      bash -c "Rscript -e 'source(\"R/db_utils.R\"); source(\"R/db_setup.R\"); create_auth_schema(Sys.getenv(\"DB_PATH\")); seed_test_admin(Sys.getenv(\"DB_PATH\"))' &&
+      bash -c "Rscript -e 'source(\"R/db_backend.R\"); source(\"R/db_utils.R\"); source(\"R/db_setup.R\"); create_auth_schema(Sys.getenv(\"DB_PATH\")); seed_test_admin(Sys.getenv(\"DB_PATH\"))' &&
                Rscript -e \"shiny::runApp('.', host='0.0.0.0', port=as.integer(Sys.getenv('PORT', 3838)))\""
+
+  # Postgres-backend path, for testing against the same dialect Cloud Run
+  # will use in production: `docker compose --profile postgres up`.
+  # Exercises the exact code path db_backend.R / db_setup.R branch on
+  # (SERIAL id, ON CONFLICT DO NOTHING, $1/$2 placeholders) without needing
+  # any GCP credentials or a real Cloud SQL instance.
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16
+    environment:
+      POSTGRES_DB: titan
+      POSTGRES_USER: titan
+      POSTGRES_PASSWORD: titan
+    volumes:
+      - titan-pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U titan"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  titan-postgres:
+    profiles: ["postgres"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3839:3838"
+    environment:
+      PORT: "3838"
+      DB_BACKEND: "postgres"
+      PGHOST: "postgres"
+      PGPORT: "5432"
+      PGDATABASE: "titan"
+      PGUSER: "titan"
+      PGPASSWORD: "titan"
+      SEED_TEST_ADMIN: "true"
+    command: >
+      bash -c "Rscript -e 'source(\"R/db_backend.R\"); source(\"R/db_utils.R\"); source(\"R/db_setup.R\"); create_auth_schema(NULL); seed_test_admin(NULL)' &&
+               Rscript -e \"shiny::runApp('.', host='0.0.0.0', port=as.integer(Sys.getenv('PORT', 3838)))\""
+
+volumes:
+  titan-pg-data:

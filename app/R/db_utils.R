@@ -3,9 +3,12 @@
 ## Hashing uses scrypt (already a dependency — see R/db_setup.R and the Dockerfile),
 ## not sodium/bcrypt: it's the same algorithm shinymanager's check_credentials()
 ## verifies against, so hashes written here stay compatible with login once that's wired in.
+##
+## Connection creation and `?`-placeholder translation are delegated to
+## R/db_backend.R (DB_BACKEND=sqlite|postgres) - this file no longer assumes
+## SQLite directly.
 
 library(DBI)
-library(RSQLite)
 library(scrypt)
 
 hash_password <- function(password) {
@@ -26,9 +29,9 @@ safe_db_write <- function(db_path, sql, params = NULL, max_retries = 3,
   attempt   <- 0
 
   do_write <- function() {
-    con <- dbConnect(RSQLite::SQLite(), db_path)
+    con <- get_db_connection(db_path)
     on.exit(dbDisconnect(con))
-    .dbExecute(con, sql, params = params)
+    .dbExecute(con, translate_placeholders(sql), params = params)
   }
 
   repeat {
@@ -52,9 +55,9 @@ safe_db_write <- function(db_path, sql, params = NULL, max_retries = 3,
 # Plain read wrapper — no retry: reads aren't subject to the write-lock
 # contention safe_db_write guards against.
 safe_db_read <- function(db_path, sql, params = NULL) {
-  con <- dbConnect(RSQLite::SQLite(), db_path)
+  con <- get_db_connection(db_path)
   on.exit(dbDisconnect(con))
-  dbGetQuery(con, sql, params = params)
+  dbGetQuery(con, translate_placeholders(sql), params = params)
 }
 
 # Builds the `check_credentials` function shinymanager::secure_server() expects:

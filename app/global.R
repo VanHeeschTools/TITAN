@@ -23,13 +23,17 @@ suppressPackageStartupMessages({
 options(shiny.maxRequestSize = 1000 * 1024^2)  # 1 GB upload limit
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AUTHENTICATION (shinymanager + SQLite)
+# AUTHENTICATION (shinymanager + DB_BACKEND=sqlite|postgres)
 # ─────────────────────────────────────────────────────────────────────────────
-# DB_PATH points at ./local-data/auth.sqlite locally (docker-compose bind
-# mount); overridden to the gcsfuse mount path (e.g. /mnt/gcs-auth/auth.sqlite)
-# on Cloud Run. Explicit source() (not relying on R/ autoload order relative to
-# global.R) — schema creation is idempotent, so it's safe to ensure it here
-# regardless of how the app is launched (docker-compose already does this too).
+# DB_BACKEND=sqlite (default): DB_PATH points at ./local-data/auth.sqlite
+# locally (docker-compose bind mount), overridden to the gcsfuse mount path
+# (e.g. /mnt/gcs-auth/auth.sqlite) on Cloud Run.
+# DB_BACKEND=postgres: a networked DB via PG* env vars — DB_PATH is ignored.
+# See R/db_backend.R. Explicit source() (not relying on R/ autoload order
+# relative to global.R) — schema creation is idempotent, so it's safe to
+# ensure it here regardless of how the app is launched (docker-compose
+# already does this too).
+source("R/db_backend.R")
 source("R/db_utils.R")
 source("R/db_setup.R")
 AUTH_DB_PATH <- Sys.getenv("DB_PATH", "./local-data/auth.sqlite")
