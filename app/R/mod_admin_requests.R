@@ -17,6 +17,11 @@ mod_admin_requests_server <- function(id, db_path) {
     refresh_trigger <- reactiveVal(0)
     refresh <- function() refresh_trigger(isolate(refresh_trigger()) + 1)
 
+    # Set by the Approve click, read by the modal's own "Grant access"
+    # confirm button - STUDY_CATALOG is the same app-wide global the Study
+    # Library itself lists from (global.R), not module-local state.
+    approving_request_id <- reactiveVal(NULL)
+
     pending <- reactive({
       refresh_trigger()
       get_pending_requests(db_path)
@@ -68,9 +73,32 @@ mod_admin_requests_server <- function(id, db_path) {
       )
     })
 
+    # Approve now opens a study picker rather than granting everything in one
+    # click - admin chooses exactly which studies this request grants.
     observeEvent(input$approve_click, {
-      result <- approve_request(db_path, input$approve_click, session$userData$user)
+      approving_request_id(input$approve_click)
+      showModal(modalDialog(
+        title = "Grant catalog access",
+        tags$p(class = "text-muted small", "Select which studies to grant access to."),
+        checkboxGroupInput(session$ns("approve_study_ids"), NULL,
+                           choices = setNames(STUDY_CATALOG$study_id, STUDY_CATALOG$display_name)),
+        easyClose = TRUE,
+        footer = tagList(
+          modalButton("Cancel"),
+          actionButton(session$ns("confirm_approve"), "Grant access", class = "btn-success")
+        )
+      ))
+    })
+
+    observeEvent(input$confirm_approve, {
+      rid <- approving_request_id()
+      req(rid)
+      result <- approve_request(db_path, rid, session$userData$user, input$approve_study_ids)
       showNotification(result$message, type = if (result$success) "message" else "error")
+      if (result$success) {
+        removeModal()
+        approving_request_id(NULL)
+      }
       refresh()
     })
 

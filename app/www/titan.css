@@ -132,18 +132,13 @@ body {
 .navbar-brand span { letter-spacing: .03em; }
 
 /* ── User avatar (navbar, right) ─────────────────────────────────────────── */
+/* Plain FontAwesome user icon, no circle/background - inherits the navbar's
+   own (light) nav-link color like every other top-level nav item. */
 .titan-user-avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: #ffffff;
-  color: var(--clr-primary);
-  font-weight: 700;
-  font-size: .8rem;
-  line-height: 1;
+  font-size: 1.1rem;
 }
 .titan-user-menu-info { padding: .35rem 1rem; white-space: nowrap; }
 

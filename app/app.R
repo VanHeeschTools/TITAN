@@ -483,6 +483,19 @@ document.addEventListener('DOMContentLoaded', function () {
     var el = document.getElementById(id);
     if (el) el.setAttribute('autocomplete', 'new-password');
   });
+  // Safari's iCloud Passwords autofill dropdown on #auth-user_id largely
+  // ignores autocomplete='off' (it's an OS-level overlay once shown - no
+  // page CSS/JS can force-dismiss it, only the browser/OS can). Marking the
+  // field readonly at load and lifting that on first focus is a separately
+  // well-established trick that measurably reduces Safari/Chrome offering
+  // saved-credential autofill on page load in the first place - not a
+  // guarantee, since this is native browser heuristic behavior outside the
+  // page's control either way.
+  var u = document.getElementById('auth-user_id');
+  if (u) {
+    u.setAttribute('readonly', 'readonly');
+    u.addEventListener('focus', function () { u.removeAttribute('readonly'); }, { once: true });
+  }
 });
 "))
 
@@ -1234,23 +1247,38 @@ ui <- secure_app(
                ". All checks run offline at app runtime — no internet access required.")
       )
     )
-  )
+  ),
+
+  # Pushes everything after it to the right edge of the navbar as a group.
+  # nav_menu(align="right") (the user avatar) only right-aligns itself, not
+  # nav_panel()s (Admin has no align= param at all) - dynamic nav_insert()
+  # calls with the default target=NULL append at the end of the current nav
+  # list, so both the Admin tab and the avatar landing after this spacer is
+  # what puts them both on the right, in insertion order, as one group.
+  nav_spacer()
   ),
   tags_top    = .auth_tabs_open,
   tags_bottom = .auth_tabs_close,
   head_auth   = .auth_head,
-  # shinymanager injects this verbatim as `.panel-auth {background:%s,#FFF;}`
-  # (confirmed by inspecting the actual rendered <head>) - it unconditionally
-  # appends a ",#FFF" fallback layer, and per the CSS background shorthand
-  # spec only the LAST comma-separated layer may be a flat color, so passing
-  # a plain hex here (e.g. "#f8f9fa") produces invalid CSS that the browser
-  # silently drops entirely, leaving .panel-auth - which covers most of the
-  # visible page - white. A one-stop-repeated gradient composes validly with
+  # Disables shinymanager's own built-in floating logout button (bottom-right
+  # by default) - it triggers the exact same .shinymanager_logout input as
+  # the navbar avatar dropdown's "Log out" item (confirmed directly from the
+  # installed package's fab_button() source), so with the navbar menu in
+  # place it was pure duplicate UI. fab_button()'s own source treats "none"
+  # as the documented way to suppress it (returns NULL).
+  fab_position = "none",
+  # Without this, shinymanager has no way to recognize a returning browser
+  # across a fresh Shiny session (which a tab reload/new tab creates) and
+  # re-prompts for login every time. Setting this stores a token cookie
+  # (in the same AUTH_DB_PATH sqlite db check_credentials already uses) valid
+  # for this many days, so reloading within that window skips the login screen.
+  cookie_expiry = 1,
+  # A one-stop-repeated gradient composes validly with
   # the appended white layer while still rendering as a flat, uniform color:
   # matches the app's own page background (bslib bs_theme(bg = "#f8f9fa") in
   # titan_theme), so the panel reads as "a card sitting on the app's normal
   # background" rather than a separate branded splash screen.
-  background = "linear-gradient(#f8f9fa, #f8f9fa)"
+  background = "linear-gradient(#f8f9fa, #dde1e4)"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1260,7 +1288,12 @@ ui <- secure_app(
 server <- function(input, output, session) {
 
   # ── Authentication (shinymanager + SQLite) ──────────────────────────────────
-  res_auth <- secure_server(check_credentials = make_check_credentials(AUTH_DB_PATH))
+  # timeout = minutes of inactivity before logout (confirmed from shinymanager's
+  # own is_valid_timeout(): difftime(..., units = "mins") <= private$timeout).
+  # Default is 15; any Shiny input change/recalculation resets the clock
+  # (assets/timeout.js), so this is idle time, not session age.
+  res_auth <- secure_server(check_credentials = make_check_credentials(AUTH_DB_PATH),
+                             timeout = 60)
   mod_signup_server("signup", AUTH_DB_PATH)
 
   # Bridge the auth reactive into session$userData so plain (non-reactive)
@@ -1294,7 +1327,7 @@ server <- function(input, output, session) {
     if (identical(res_auth$role, "admin") && !isolate(admin_tab_inserted())) {
       nav_insert(
         "main_nav",
-        nav_panel("Admin", icon = icon("user-shield"),
+        nav_panel("Admin", icon = icon("shield"),
                   mod_admin_requests_ui("admin_requests")),
         select = FALSE
       )
@@ -1306,9 +1339,7 @@ server <- function(input, output, session) {
   # ── User avatar (navbar, right) — email/role + logout ───────────────────────
   # Same "insert once res_auth$user resolves" pattern as the Admin tab above:
   # can't be a static nav_menu since the logged-in user isn't known until
-  # after login. The initial-letter avatar is baked into the title HTML at
-  # insertion time (not reactive) since it's inserted exactly once per
-  # session, right after res_auth$user first resolves.
+  # after login.
   # actionLink id is the literal ".shinymanager_logout" (no NS() prefix,
   # inserted at top server level, not inside a module) - that's the exact
   # input shinymanager's secure_server() listens for internally to log out.
@@ -1317,18 +1348,27 @@ server <- function(input, output, session) {
     if (!isolate(user_menu_inserted())) {
       user_email <- res_auth$user
       user_role  <- res_auth$role %||% "general"
-      initial    <- toupper(substr(user_email, 1, 1))
+      # Access is per-study (R/catalog_access.R study_access table), not a
+      # single blanket role - offered whenever the user is missing access to
+      # at least one cataloged study, not just for brand-new users. Without
+      # this, the menu item would disappear after a user's *first* approval
+      # even if they still lack access to other studies added later.
+      needs_catalog_access <- !isTRUE(user_role == "admin") &&
+        !all(STUDY_CATALOG$study_id %in% get_user_study_access(AUTH_DB_PATH, user_email))
 
       nav_insert(
         "main_nav",
         nav_menu(
-          title = tags$span(class = "titan-user-avatar", initial),
+          title = tags$span(class = "titan-user-avatar", icon("user")),
           align = "right",
           nav_item(tags$div(class = "titan-user-menu-info",
             tags$div(class = "fw-semibold", user_email),
             tags$div(class = "text-muted small", user_role)
           )),
           nav_item(tags$hr(class = "my-1")),
+          if (needs_catalog_access)
+            nav_item(actionLink("open_catalog_access_modal", "Catalog access",
+                                 icon = icon("book-open"))),
           nav_item(actionLink(".shinymanager_logout", "Log out",
                                icon = icon("right-from-bracket")))
         ),
@@ -1337,6 +1377,95 @@ server <- function(input, output, session) {
       user_menu_inserted(TRUE)
     }
   }, ignoreNULL = TRUE)
+
+  # ── Catalog access request modal (user dropdown -> "Catalog access") ────────
+  # Browsable-only view of the study catalog (title/metadata, no Load action)
+  # plus a request form, for users without catalog_access. Reuses the exact
+  # same submit_catalog_request()/get_own_pending_request() (R/catalog_access.R)
+  # the signup-time request and the Admin tab's queue already use - one
+  # request system, not a parallel one.
+  catalog_access_refresh_rv <- reactiveVal(0)
+
+  output$catalog_access_modal_body <- renderUI({
+    catalog_access_refresh_rv()
+    user_email <- session$userData$user
+    req(user_email)
+    pending      <- get_own_pending_request(AUTH_DB_PATH, user_email)
+    granted_ids  <- get_user_study_access(AUTH_DB_PATH, user_email)
+
+    study_rows <- lapply(seq_len(nrow(STUDY_CATALOG)), function(i) {
+      s <- STUDY_CATALOG[i, ]
+      has_access <- s$study_id %in% granted_ids
+      tags$div(
+        class = "titan-study-row d-flex justify-content-between align-items-center",
+        tags$div(
+          tags$b(class = "d-block", s$display_name),
+          tags$small(class = "text-muted",
+            paste0(
+              if (!is.na(s$n_orfs)) paste0(formatC(s$n_orfs, big.mark = ",", format = "d"), " ORFs"),
+              if (!is.na(s$n_ribo_samples)) paste0(" · ", s$n_ribo_samples, " ribo / ", s$n_rna_samples, " RNA"),
+              if (!is.na(s$cancer_type)) paste0(" · ", s$cancer_type),
+              if (!is.na(s$cohort)) paste0(" · ", s$cohort)
+            )
+          )
+        ),
+        # No Load action here either way - this modal is browsable metadata
+        # only (Step 4a); actually loading a granted study still happens
+        # from the Study Library tab.
+        if (has_access)
+          tags$span(class = "badge rounded-pill text-bg-success", icon("check"), " Access granted")
+        else
+          tags$span(class = "badge rounded-pill text-bg-light border", icon("lock"), " Locked")
+      )
+    })
+    study_list_ui <- tagList(
+      tags$p(class = "text-muted small",
+             "Studies available in the library - request access below to unlock them."),
+      tags$div(style = "max-height:260px;overflow-y:auto;padding-right:2px;", study_rows)
+    )
+
+    if (nrow(pending) > 0) {
+      tagList(
+        study_list_ui,
+        tags$hr(),
+        tags$div(class = "alert alert-info mb-0",
+          icon("clock"), " Request pending since ",
+          format(as.POSIXct(pending$requested_at[1], tz = "UTC"), "%Y-%m-%d %H:%M"), "."
+        )
+      )
+    } else {
+      tagList(
+        study_list_ui,
+        tags$hr(),
+        textAreaInput("catalog_access_modal_justification",
+                      "Why do you need catalog access? (optional)",
+                      rows = 2, width = "100%",
+                      placeholder = "e.g. study/team, what you'll use it for"),
+        actionButton("catalog_access_modal_submit", "Request access", class = "btn-primary")
+      )
+    }
+  })
+
+  observeEvent(input$open_catalog_access_modal, {
+    showModal(modalDialog(
+      title = tagList(icon("book-open"), " Catalog access"),
+      uiOutput("catalog_access_modal_body"),
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    ))
+  })
+
+  observeEvent(input$catalog_access_modal_submit, {
+    user_email <- session$userData$user
+    req(user_email)
+    justification <- trimws(input$catalog_access_modal_justification %||% "")
+    result <- submit_catalog_request(
+      AUTH_DB_PATH, user_email,
+      justification = if (nzchar(justification)) justification else NA_character_
+    )
+    showNotification(result$message, type = if (result$success) "message" else "error")
+    catalog_access_refresh_rv(catalog_access_refresh_rv() + 1)
+  })
 
   # ── Cross-reactivity / BLAST state ───────────────────────────────────────────
   # Per-orf session caches; all keyed by orf_id.
@@ -1695,8 +1824,21 @@ server <- function(input, output, session) {
               )
             )
           ),
-          actionButton(paste0("load_study_", sid), "Load",
-                       class = "btn-sm btn-outline-primary flex-shrink-0")
+          # Same per-study check the load_study_<sid> observer itself
+          # enforces (user_has_study_access(), R/catalog_access.R) - shown
+          # up front as a disabled button instead of only blocking on click,
+          # so a user without access to this particular study sees that
+          # before trying it, not after.
+          if (user_has_study_access(session, AUTH_DB_PATH, sid))
+            actionButton(paste0("load_study_", sid), "Load",
+                         class = "btn-sm btn-outline-primary flex-shrink-0")
+          else
+            tags$button(
+              type = "button", class = "btn btn-sm btn-outline-secondary flex-shrink-0",
+              disabled = NA,
+              title = "Request catalog access from the user menu to unlock this study",
+              icon("lock"), " Locked"
+            )
         )
       }
     })
@@ -1783,12 +1925,14 @@ server <- function(input, output, session) {
   # One observer per catalog entry, registered at session start
   lapply(STUDY_CATALOG$study_id, function(sid) {
     observeEvent(input[[paste0("load_study_", sid)]], {
-      if (!user_has_role(session, "catalog_access")) {
+      # Per-study grant (R/catalog_access.R), not the old blanket
+      # catalog_access role - admins still bypass via the same function.
+      if (!user_has_study_access(session, AUTH_DB_PATH, sid)) {
         warning(sprintf(
-          "Blocked catalog data load: user '%s' (role '%s') lacks catalog_access.",
-          session$userData$user %||% "unknown", session$userData$role %||% "unknown"
+          "Blocked catalog data load: user '%s' lacks access to study '%s'.",
+          session$userData$user %||% "unknown", sid
         ))
-        showNotification("You do not have catalog access.", type = "error")
+        showNotification("You do not have access to this study.", type = "error")
         return()
       }
       entry <- STUDY_CATALOG[STUDY_CATALOG$study_id == sid, ]
@@ -2192,7 +2336,11 @@ server <- function(input, output, session) {
     df <- orf_table_rv()
 
     ppm_thr <- max(0, input$ppm_threshold %||% 1)
-    ppm_n   <- max(1, input$ppm_n_samples  %||% 1)
+    # 0 is a legitimate value here (studies with no internal ribo-seq have
+    # target_translation_num_samples/ribo_ppm_samples entirely NA/0-column —
+    # clamping to a minimum of 1, as the RNA-seq side below does, would silently
+    # filter out every candidate for such a study, since 0 >= 1 is never true).
+    ppm_n   <- max(0, input$ppm_n_samples  %||% 0)
     tpm_thr <- max(0, input$tpm_threshold  %||% 1)
     tpm_n   <- max(1, input$tpm_n_samples  %||% 1)
 

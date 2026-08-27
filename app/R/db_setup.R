@@ -43,6 +43,21 @@ create_auth_schema <- function(db_path) {
       ON catalog_access_requests(user_email) WHERE status = 'pending'
   ")
 
+  # Per-study grants — replaces the old all-or-nothing model where
+  # role = 'catalog_access' alone unlocked every study. study_id isn't a
+  # DB-level FK (the study catalog lives in data/catalog.yaml, not a table),
+  # just the same study_id string used throughout the app (STUDY_CATALOG,
+  # catalog_study_list, etc.).
+  dbExecute(con, "
+    CREATE TABLE IF NOT EXISTS study_access (
+      user_email  TEXT NOT NULL REFERENCES users(email),
+      study_id    TEXT NOT NULL,
+      granted_by  TEXT,
+      granted_at  TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (user_email, study_id)
+    )
+  ")
+
   invisible(TRUE)
 }
 
