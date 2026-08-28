@@ -238,7 +238,7 @@ scoring_sidebar_ui <- function() {
             tags$span(class = "weight-hint", "↑ ", m$hint)
           ),
           min = if (is_pct) 0 else -1,
-          max = 1, value = 0, step = 0.1, ticks = FALSE
+          max = 1, value = m$specific, step = 0.1, ticks = FALSE
         )
         if (is_pct) s else tags$div(class = "titan-bipolar-slider", s)
       })
@@ -846,7 +846,44 @@ ui <- page_navbar(
     )
   ),
 
-  # ── Tab 5: Report ───────────────────────────────────────────────────────────
+  # ── Tab 5: Peptide list ──────────────────────────────────────────────────────
+  # Peptide-centric view of whatever candidates are currently checked in
+  # Prioritization: one row per (peptide, gene) attribution, with lazy,
+  # cached cross-reactivity + off-tissue risk per row, and a "keep for
+  # vaccine" selection independent of (and feeding into) the Report tab.
+  nav_panel(
+    "Peptides", icon = icon("vial-circle-check"),
+
+    conditionalPanel(
+      condition = "output.has_started == false",
+      div(class = "d-flex flex-column align-items-center justify-content-center mt-5 text-muted",
+          icon("play-circle", class = "fa-3x mb-3"),
+          tags$h5("Not started"),
+          tags$p("Press START on the Data tab to begin."))
+    ),
+
+    conditionalPanel(
+      condition = "output.has_started == true",
+
+      card(
+        class = "titan-priority-card",
+        card_header(
+          class = "d-flex justify-content-between align-items-center",
+          "Peptides",
+          tags$div(
+            class = "d-flex gap-1",
+            downloadButton("dl_peptide_all",      "Export all",
+                           class = "btn-sm btn-outline-primary"),
+            downloadButton("dl_peptide_selected", "Export selection",
+                           class = "btn-sm titan-btn-export-primary")
+          )
+        ),
+        card_body(class = "p-0 titan-priority-body", DTOutput("tbl_peptide"))
+      )
+    )
+  ),
+
+  # ── Tab 6: Report ────────────────────────────────────────────────────────────
   nav_panel(
     "Report", icon = icon("file-lines"),
     div(class = "container-fluid py-3",
@@ -909,7 +946,7 @@ ui <- page_navbar(
         tags$h6("ORF Detail (safety checks)"),
         tags$ul(
           tags$li(tags$b("Canonical cross-reactivity (Biostrings):"),
-                  " exact, 1-mismatch, and 2-mismatch peptide matching against the Ensembl 114 proteome",
+                  " exact and 1-mismatch peptide matching against the Ensembl 114 proteome",
                   " (~60–80 K deduplicated sequences, all annotated isoforms); results collapsed",
                   " to gene level (ENSG) with isoform count."),
           tags$li(tags$b("BLAST homology (blastp):"),
@@ -1839,7 +1876,10 @@ server <- function(input, output, session) {
     setNames(as.list(w), sapply(WEIGHT_META, `[[`, "id"))
   })
 
-  active_preset <- reactiveVal(NULL)
+  # Cancer-specific active by default on load (sliders above are also
+  # initialised to m$specific to match, so this is consistent from first
+  # render - not just fixed up after the fact via an init-time observer).
+  active_preset <- reactiveVal("Cancer-specific")
 
   observeEvent(input$scoring_preset, {
     preset <- input$scoring_preset
@@ -1983,6 +2023,56 @@ server <- function(input, output, session) {
       arrange(desc(priority_score)) %>%
       mutate(.row_id = row_number())
   }) %>% bindCache(prioritised_data())
+
+  # ── Peptide-gene data (Peptide tab) ─────────────────────────────────────────
+  # One row per (peptide, gene, biotype) pairing, scoped to whatever candidates
+  # are currently checked in Prioritization (prio_selected_rowids). A single
+  # peptide can appear multiple times here - once per distinct gene it's
+  # attributed to across the selected candidates - since a peptide's homology
+  # / off-tissue risk and "keep for vaccine" decision are evaluated per gene
+  # attribution, not per raw sequence (agreed selection granularity).
+  peptide_gene_data <- reactive({
+    req(gene_prioritised_data())
+    sel <- prio_selected_rowids()
+    shiny::validate(shiny::need(length(sel) > 0, "Select one or more candidates in the Prioritization tab first."))
+
+    gpd <- gene_prioritised_data() %>% filter(.row_id %in% sel)
+    gpd <- gpd[nzchar(trimws(gpd$matched_peptides %||% "")), , drop = FALSE]
+    if (nrow(gpd) == 0L) {
+      return(data.frame(peptide = character(0), gene_id_clean = character(0),
+                        gene_name = character(0), orf_biotype_single = character(0),
+                        orf_ids = character(0), .pep_row_id = character(0),
+                        stringsAsFactors = FALSE))
+    }
+
+    pep_list <- strsplit(gpd$matched_peptides, ",\\s*")
+    n_pep    <- lengths(pep_list)
+    long <- data.frame(
+      peptide            = trimws(unlist(pep_list, use.names = FALSE)),
+      gene_id_clean      = rep(gpd$gene_id_clean,      n_pep),
+      gene_name          = rep(gpd$gene_name,          n_pep),
+      orf_biotype_single = rep(gpd$orf_biotype_single, n_pep),
+      orf_ids            = rep(gpd$orf_ids,            n_pep),
+      stringsAsFactors = FALSE
+    )
+
+    # A (peptide, gene, biotype) triple can arise from more than one selected
+    # candidate group (e.g. two peptide-set groups for the same gene both
+    # containing this peptide) - merge their orf_ids rather than silently
+    # keeping just one, and use the triple itself (not row position) as the
+    # stable id: the row SET here changes whenever the Prioritization
+    # selection changes, so a positional id would misattribute checkboxes to
+    # the wrong peptide after a re-filter.
+    long %>%
+      group_by(peptide, gene_id_clean, gene_name, orf_biotype_single) %>%
+      summarise(
+        orf_ids = paste(sort(unique(trimws(unlist(strsplit(paste(orf_ids, collapse = ", "), ",\\s*"))))),
+                        collapse = ", "),
+        .groups = "drop"
+      ) %>%
+      mutate(.pep_row_id = paste(peptide, gene_id_clean, orf_biotype_single, sep = "||")) %>%
+      arrange(peptide, gene_name)
+  })
 
   # ── Overview stats ───────────────────────────────────────────────────────────
   output$stat_total <- renderText(formatC(nrow(filtered_data()), big.mark = ","))
@@ -2435,6 +2525,143 @@ server <- function(input, output, session) {
     )
   }, server = TRUE)
 
+  # ── Peptide table (peptide-centric) ──────────────────────────────────────────
+  output$tbl_peptide <- renderDT({
+    pgd <- peptide_gene_data()
+    req(nrow(pgd) > 0L)
+
+    cache     <- pep_xreact_cache_rv()
+    gtex_mat  <- tryCatch(gtex_tpm_rv(),  error = function(e) NULL)
+    gtex_meta <- tryCatch(gtex_meta_rv(), error = function(e) NULL)
+
+    hom_html <- mapply(
+      make_pep_homology_cell,
+      pgd$peptide, pgd$gene_id_clean, pgd$gene_name, pgd$.pep_row_id,
+      MoreArgs = list(cache = cache, gtex_mat = gtex_mat, gtex_meta = gtex_meta),
+      SIMPLIFY = TRUE, USE.NAMES = FALSE
+    )
+
+    df <- data.frame(
+      Sel = sprintf('<input type="checkbox" class="titan-pep-row-checkbox" data-rowid="%s">',
+                    pgd$.pep_row_id),
+      Peptide = sprintf('<span class="font-monospace" style="font-size:10px">%s</span>', pgd$peptide),
+      Gene = sprintf(
+        '<span class="titan-pepgene-link fw-semibold fst-italic" data-gid="%s" data-sym="%s">%s</span>',
+        pgd$gene_id_clean, htmltools::htmlEscape(pgd$gene_name), pgd$gene_name
+      ),
+      `ORF-biotype` = biotype_badge_html(pgd$orf_biotype_single),
+      `Linked ORFs` = sprintf('<span class="font-monospace" style="font-size:10px;word-break:break-all">%s</span>',
+                              pgd$orf_ids),
+      `Homology (0/1mm)` = hom_html,
+      `HLA binding` = '<span class="text-muted small fst-italic" title="HLA binding prediction not yet available">pending</span>',
+      stringsAsFactors = FALSE, check.names = FALSE
+    )
+
+    datatable(
+      df,
+      escape    = FALSE,
+      rownames  = FALSE,
+      selection = "none",
+      class     = "compact hover",
+      callback  = JS("
+        $('#tbl_peptide').off('.titanpep');
+        $(document).off('.titanpephdr');
+
+        window.titanPepSel = window.titanPepSel || new Set();
+
+        // -- Gene link: open expression modal ------------------------------
+        $('#tbl_peptide').on('click.titanpep', '.titan-pepgene-link', function(e) {
+          e.stopPropagation();
+          var $el = $(this);
+          Shiny.setInputValue('pep_gene_click',
+            {gid: $el.data('gid'), sym: $el.data('sym'), nonce: Math.random()},
+            {priority: 'event'});
+        });
+
+        // -- Homology 'Check' link: trigger lazy per-peptide scan -----------
+        $('#tbl_peptide').on('click.titanpep', '.titan-pep-homology-check', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var $el = $(this);
+          $el.replaceWith('<span class=\"text-muted small\"><span class=\"spinner-border spinner-border-sm\"></span> Checking…</span>');
+          Shiny.setInputValue('pep_homology_click',
+            {peptide: $el.data('peptide'), rowid: $el.data('rowid'), nonce: Math.random()},
+            {priority: 'event'});
+        });
+
+        // -- 'and N more...' / 'less' toggle (Homology cell) ----------------
+        $('#tbl_peptide').on('click.titanpep', '.titan-pep-more, .titan-pep-less', function(e) {
+          e.stopPropagation();
+          var $cell  = $(this).closest('td');
+          var $more  = $cell.find('.titan-pep-more');
+          var $less  = $cell.find('.titan-pep-less');
+          var $extra = $cell.find('.titan-pep-extra');
+          var open   = $extra.css('display') !== 'none';
+          $extra.css('display', open ? 'none' : '');
+          $more.css('display', open ? '' : 'none');
+          $less.css('display', open ? 'none' : '');
+        });
+
+        // -- Row checkbox: track selected rows (string keys) ----------------
+        $('#tbl_peptide').on('change.titanpep', '.titan-pep-row-checkbox', function() {
+          var rid = $(this).data('rowid').toString();
+          this.checked ? window.titanPepSel.add(rid) : window.titanPepSel.delete(rid);
+          titanSyncPepHeader();
+          Shiny.setInputValue('pep_selected_rowids', Array.from(window.titanPepSel), {priority: 'event'});
+        });
+
+        // -- Header checkbox: select/deselect current page ------------------
+        $(document).on('change.titanpephdr', '#titan-pep-hdr-cb', function() {
+          var ok = this.checked;
+          $('#tbl_peptide tbody .titan-pep-row-checkbox').each(function() {
+            var rid = $(this).data('rowid').toString();
+            $(this).prop('checked', ok);
+            ok ? window.titanPepSel.add(rid) : window.titanPepSel.delete(rid);
+          });
+          this.indeterminate = false;
+          Shiny.setInputValue('pep_selected_rowids', Array.from(window.titanPepSel), {priority: 'event'});
+        });
+
+        function titanSyncPepHeader() {
+          var cbs = $('#tbl_peptide tbody .titan-pep-row-checkbox');
+          var n = cbs.length, nc = cbs.filter(':checked').length;
+          var h = document.getElementById('titan-pep-hdr-cb');
+          if (!h) return;
+          h.checked = (nc === n && n > 0); h.indeterminate = (nc > 0 && nc < n);
+        }
+        window.titanSyncPepHeader = titanSyncPepHeader;
+      "),
+      options = list(
+        pageLength = 20,
+        dom        = "Bfrtip",
+        scrollX    = TRUE,
+        headerCallback = JS("function(thead) {
+          $(thead).find('th:first').html('<input type=\"checkbox\" id=\"titan-pep-hdr-cb\" style=\"cursor:pointer\" title=\"Select/deselect current page\">');
+        }"),
+        drawCallback = JS("function() {
+          var sel = window.titanPepSel || new Set();
+          $('#tbl_peptide tbody .titan-pep-row-checkbox').each(function() {
+            $(this).prop('checked', sel.has($(this).data('rowid').toString()));
+          });
+          if (window.titanSyncPepHeader) window.titanSyncPepHeader();
+        }"),
+        columnDefs = list(
+          list(className = "dt-center", targets = 0L),
+          list(orderable = FALSE, targets = 0L)
+        ),
+        lengthMenu = list(c(10, 20, 50), c("10", "20", "50"))
+      )
+    )
+  }, server = TRUE)
+
+  observeEvent(input$pep_gene_click, {
+    gid <- input$pep_gene_click$gid
+    sym <- input$pep_gene_click$sym
+    req(nzchar(gid %||% ""), nzchar(sym %||% ""))
+    modal_gene_rv(list(gid = gid, sym = sym))
+    showModal(expr_modal(gene_sym = sym, gid = gid, aln_text = NULL))
+  }, ignoreNULL = TRUE)
+
   prio_row_id          <- reactiveVal(NULL)
   prio_selected_rowids <- reactiveVal(integer(0))
 
@@ -2455,6 +2682,21 @@ server <- function(input, output, session) {
   observeEvent(input$prio_selected_rowids, {
     prio_selected_rowids(as.integer(input$prio_selected_rowids %||% integer(0)))
   }, ignoreNULL = FALSE)
+
+  # ── Peptide tab: selection + per-peptide homology cache ─────────────────────
+  # pep_selected_rowids holds .pep_row_id strings (peptide||gene||biotype), not
+  # integers - see peptide_gene_data() for why a content-based id is used here
+  # instead of a positional row_number() (mirrors prio_selected_rowids/
+  # tbl_priority's checkbox mechanism, adapted for a string key).
+  pep_selected_rowids <- reactiveVal(character(0))
+  observeEvent(input$pep_selected_rowids, {
+    pep_selected_rowids(as.character(input$pep_selected_rowids %||% character(0)))
+  }, ignoreNULL = FALSE)
+
+  # Keyed by peptide sequence (not by .pep_row_id): the homology scan result
+  # for a peptide doesn't depend on which gene-attribution row triggered it,
+  # so multiple rows sharing a peptide reuse one cached scan.
+  pep_xreact_cache_rv <- reactiveVal(list())
 
   selected_prio_row <- reactive({
     rid <- prio_row_id()
@@ -2593,7 +2835,43 @@ server <- function(input, output, session) {
     if (!isTRUE(input$main_nav == "Prioritization")) { prio_row_id(NULL); removeModal() }
     if (isTRUE(input$main_nav == "ORF Detail"))
       orf_detail_nav_rv(orf_detail_nav_rv() + 1L)
+    if (isTRUE(input$main_nav == "Peptide list"))
+      precompute_pep_homology()
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
+
+  # Computes homology (with progress feedback) for every peptide in
+  # peptide_gene_data() not already cached, once per Peptide-tab visit -
+  # after this, tbl_peptide's cells render pre-resolved instead of showing
+  # per-row "Check" links. isolate()d throughout: this must not re-run every
+  # time peptide_gene_data()/the cache itself changes, only on nav.
+  precompute_pep_homology <- function() {
+    pgd <- tryCatch(isolate(peptide_gene_data()), error = function(e) NULL)
+    if (is.null(pgd) || nrow(pgd) == 0L) return(invisible(NULL))
+
+    already  <- names(isolate(pep_xreact_cache_rv()))
+    to_check <- setdiff(unique(pgd$peptide), already)
+    if (length(to_check) == 0L) return(invisible(NULL))
+
+    ref <- build_pep_reference()
+    if ("Error" %in% names(ref)) {
+      cache <- isolate(pep_xreact_cache_rv())
+      for (p in to_check) cache[[p]] <- ref
+      pep_xreact_cache_rv(cache)
+      return(invisible(NULL))
+    }
+
+    rna_mat <- tryCatch(isolate(rna_tpm_rv()), error = function(e) NULL)
+    withProgress(message = "Adding peptide homology…", value = 0, {
+      cache <- isolate(pep_xreact_cache_rv())
+      for (i in seq_along(to_check)) {
+        setProgress(i / length(to_check),
+                    detail = sprintf("%d of %d peptides", i, length(to_check)))
+        cache[[to_check[i]]] <- scan_peptide_homology(to_check[i], rna_mat, ref = ref)
+      }
+      pep_xreact_cache_rv(cache)
+    })
+    invisible(NULL)
+  }
 
   output$plot_radar <- renderPlotly({
     row <- selected_prio_row()
@@ -3156,6 +3434,47 @@ server <- function(input, output, session) {
     }
   )
 
+  # One row per (peptide, gene) - homology summary reflects only what's been
+  # checked in-app so far (lazy, cached per peptide); rows never expanded in
+  # the Peptide tab export as "not checked", not as "no cross-reactivity".
+  pep_export_cols <- function(df) {
+    cache <- pep_xreact_cache_rv()
+    hom_summary <- mapply(function(peptide, gid, sym) {
+      hits <- cache[[peptide]]
+      if (is.null(hits)) return("not checked")
+      if ("Error" %in% names(hits)) return(paste("error:", hits$Error[1L]))
+      hits <- exclude_self_gene(hits, gid, sym)
+      if (is.null(hits) || nrow(hits) == 0L) return("none")
+      paste(sprintf("%s (%dmm)", hits$Gene_sym, hits$Mismatches), collapse = "; ")
+    }, df$peptide, df$gene_id_clean, df$gene_name)
+    df %>%
+      transmute(
+        peptide, gene = gene_name, ensg = gene_id_clean,
+        orf_biotype = orf_biotype_single, linked_orfs = orf_ids,
+        homology_0_1mm = hom_summary,
+        selected_for_vaccine = .pep_row_id %in% pep_selected_rowids()
+      )
+  }
+
+  output$dl_peptide_all <- downloadHandler(
+    filename = function() paste0("titan_peptides_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
+    content  = function(dest) {
+      req(peptide_gene_data())
+      write_csv_with_header(pep_export_cols(peptide_gene_data()), dest)
+    }
+  )
+
+  output$dl_peptide_selected <- downloadHandler(
+    filename = function() paste0("titan_peptides_selected_", format(Sys.time(), "%Y-%m-%d_%H%M"), ".csv"),
+    content  = function(dest) {
+      req(peptide_gene_data())
+      sel <- pep_selected_rowids()
+      shiny::validate(shiny::need(length(sel) > 0, "No peptides selected."))
+      df <- peptide_gene_data() %>% filter(.pep_row_id %in% sel)
+      write_csv_with_header(pep_export_cols(df), dest)
+    }
+  )
+
   # ── ORF Detail ───────────────────────────────────────────────────────────────
   detail_orf <- reactive({
     req(input$detail_orf_id)
@@ -3362,122 +3681,30 @@ server <- function(input, output, session) {
 
       if (length(peps) == 0L) {
         store_xr(data.frame())
-      } else if (is.null(ensembl_pep_index)) {
-        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
       } else {
-        pep_seqs <- ensembl_pep_seqs_lazy()
-        if (is.null(pep_seqs) || length(pep_seqs) == 0L) {
-          store_xr(data.frame(Error = "Ensembl 114 pep sequences could not be loaded."))
-          return()
-        }
-        ref_set <- Biostrings::AAStringSet(pep_seqs)
-        ref_md5 <- names(pep_seqs)   # md5 hashes as names
-
-        # Render a peptide as HTML, bolding the given (1-based) mismatch positions.
-        pep_html <- function(chars, mm_pos) {
-          paste(ifelse(seq_along(chars) %in% mm_pos,
-                       paste0("<strong>", chars, "</strong>"), chars),
-                collapse = "")
-        }
-
-        hits <- do.call(rbind, Filter(Negate(is.null), lapply(peps, function(pep) {
-          pep_aa    <- tryCatch(Biostrings::AAString(pep), error = function(e) NULL)
-          if (is.null(pep_aa)) return(NULL)
-          pep_len   <- nchar(pep)
-          pep_chars <- strsplit(pep, "")[[1]]
-
-          m0 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 0L, fixed = TRUE),
-                         error = function(e) NULL)
-          m1 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 1L, fixed = TRUE),
-                         error = function(e) NULL)
-          m2 <- tryCatch(Biostrings::vmatchPattern(pep_aa, ref_set, max.mismatch = 2L, fixed = TRUE),
-                         error = function(e) NULL)
-
-          # Strict per-level indices (parallel to ref_set rows)
-          idx0 <- if (!is.null(m0)) which(lengths(m0) > 0L) else integer(0)
-          idx1 <- if (!is.null(m1)) setdiff(which(lengths(m1) > 0L), idx0) else integer(0)
-          idx2 <- if (!is.null(m2)) setdiff(which(lengths(m2) > 0L), union(idx0, idx1)) else integer(0)
-          if (!length(idx0) && !length(idx1) && !length(idx2)) return(NULL)
-
-          # For each matched sequence index, extract the target subsequence and
-          # build HTML-rendered query/target strings with mismatches bolded.
-          build_rows <- function(seq_idx, views_list, mm) {
-            if (!length(seq_idx)) return(NULL)
-            do.call(rbind, Filter(Negate(is.null), lapply(seq_idx, function(i) {
-              views <- views_list[[i]]
-              if (!length(views)) return(NULL)
-              s <- IRanges::start(views)[1L]
-              tgt <- tryCatch(
-                as.character(Biostrings::subseq(ref_set[[i]], start = s, width = pep_len)),
-                error = function(e) NULL
-              )
-              if (is.null(tgt) || nchar(tgt) != pep_len) return(NULL)
-              tgt_chars   <- strsplit(tgt, "")[[1]]
-              mm_pos      <- which(pep_chars != tgt_chars)
-              query_html  <- pep_html(pep_chars, mm_pos)
-              target_html <- pep_html(tgt_chars, mm_pos)
-              md5         <- ref_md5[i]
-              ensg_vec    <- ensembl_pep_index$md5_to_ensg[[md5]] %||% NA_character_
-              sym_vec     <- ensembl_pep_index$md5_to_sym[[md5]]  %||% "unknown"
-              n_ensp      <- length(ensembl_pep_index$md5_to_ensp[[md5]])
-              # Iterate over ENSGs explicitly to avoid length-mismatch in data.frame()
-              # when md5_to_ensg and md5_to_sym have different lengths.
-              do.call(rbind, lapply(seq_along(ensg_vec), function(j) {
-                ensg_j <- as.character(ensg_vec[[j]])[1L]
-                gene_sym_j <- if (!is.null(ensembl_gene_annot) && !is.na(ensg_j)) {
-                  idx_a <- match(ensg_j, ensembl_gene_annot$ensembl_gene_id)
-                  if (!is.na(idx_a)) ensembl_gene_annot$external_gene_name[idx_a]
-                  else if (length(sym_vec) > 0L) as.character(sym_vec[1L]) else NA_character_
-                } else {
-                  if (length(sym_vec) > 0L) as.character(sym_vec[1L]) else NA_character_
-                }
-                data.frame(
-                  Peptide     = pep,
-                  Query_html  = query_html,
-                  Target_html = target_html,
-                  Gene_sym    = gene_sym_j,
-                  ENSG        = ensg_j,
-                  Mismatches  = mm,
-                  stringsAsFactors = FALSE
-                )
-              }))
-            })))
-          }
-
-          rbind(build_rows(idx0, m0, 0L),
-                build_rows(idx1, m1, 1L),
-                build_rows(idx2, m2, 2L))
-        })))
-        # Final dedup across peptides: keep best (lowest) Mismatches per gene
-        if (!is.null(hits) && nrow(hits) > 0L) {
-          hits <- hits[order(hits$ENSG, hits$Mismatches), ]
-          hits <- hits[!duplicated(hits$ENSG), ]
-          # Exclude self: drop hits where ENSG or gene name match the query ORF
+        rna_mat <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
+        hits    <- scan_peptide_homology(peps, rna_mat)
+        if (!"Error" %in% names(hits) && nrow(hits) > 0L) {
           orf_row  <- filter(orf_table_rv(), orf_id == oid)
           orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
           orf_name <- if (nrow(orf_row) > 0L) orf_row$gene_name[1L]     else NA_character_
-          if (!is.na(orf_ensg))
-            hits <- hits[is.na(hits$ENSG)     | hits$ENSG     != orf_ensg, , drop = FALSE]
-          if (!is.na(orf_name) && nzchar(orf_name))
-            hits <- hits[is.na(hits$Gene_sym) | hits$Gene_sym != orf_name, , drop = FALSE]
-          # For gene names that resolve to multiple ENSGs, keep only those
-          # present in the tumor quantification matrix.
-          if (nrow(hits) > 0L) {
-            rna_mat    <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
-            gene_n     <- table(hits$Gene_sym)
-            multi_syms <- names(gene_n)[gene_n > 1L]
-            if (length(multi_syms) > 0L && !is.null(rna_mat)) {
-              in_mat    <- hits$ENSG %in% rownames(rna_mat)
-              is_multi  <- hits$Gene_sym %in% multi_syms
-              hits      <- hits[!is_multi | in_mat, , drop = FALSE]
-            }
-          }
+          hits <- exclude_self_gene(hits, orf_ensg, orf_name)
         }
-        store_xr(if (is.null(hits)) data.frame() else hits)
+        store_xr(hits)
       }
     }
 
   }, ignoreInit = FALSE, ignoreNULL = TRUE)
+
+  # ── Peptide tab: per-peptide homology check, lazy on click ──────────────────
+  observeEvent(input$pep_homology_click, {
+    pep <- input$pep_homology_click$peptide
+    req(nzchar(pep %||% ""))
+    if (!is.null(pep_xreact_cache_rv()[[pep]])) return(invisible(NULL))
+    rna_mat <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
+    hits    <- scan_peptide_homology(pep, rna_mat)
+    cache <- pep_xreact_cache_rv(); cache[[pep]] <- hits; pep_xreact_cache_rv(cache)
+  }, ignoreNULL = TRUE)
 
   output$xreact_status_ui <- renderUI({
     orf_detail_nav_rv()
@@ -3490,14 +3717,12 @@ server <- function(input, output, session) {
       return(tags$p(class = "text-danger small me-2", icon("circle-xmark"), " ", xr$Error[1L]))
     if (nrow(xr) == 0L)
       return(tags$p(class = "text-success small me-2",
-                    icon("circle-check"), " No canonical matches (up to 2 mismatches)."))
+                    icon("circle-check"), " No canonical matches (up to 1 mismatch)."))
     n_exact <- sum(xr$Mismatches == 0L, na.rm = TRUE)
     n_near1 <- sum(xr$Mismatches == 1L, na.rm = TRUE)
-    n_near2 <- sum(xr$Mismatches == 2L, na.rm = TRUE)
     parts <- c(
       if (n_exact > 0L) paste0(n_exact, " exact gene(s)"),
-      if (n_near1 > 0L) paste0(n_near1, " 1-mismatch gene(s)"),
-      if (n_near2 > 0L) paste0(n_near2, " 2-mismatch gene(s)")
+      if (n_near1 > 0L) paste0(n_near1, " 1-mismatch gene(s)")
     )
     label <- paste(parts, collapse = ", ")
     tags$p(class = "fw-semibold text-muted small me-2",
@@ -3904,10 +4129,40 @@ server <- function(input, output, session) {
           pep_list <- if (!is.null(md))
             unique(md$matched_peptide[md$orf_id == row$orf_id])
           else character(0)
+
+          # Peptide prioritisation status for this candidate's peptides -
+          # "prioritised" = checked in the Peptide tab (.pep_row_id key must
+          # match peptide_gene_data()'s: peptide||gene_id_clean||biotype).
+          # "reason" for a dropped peptide is only populated if its homology
+          # was actually checked in-app (pep_xreact_cache_rv is lazy/cached
+          # per peptide) - an unchecked dropped peptide just shows "Dropped".
+          pep_status_df <- if (length(pep_list) > 0L) {
+            sel_keys <- pep_selected_rowids()
+            hcache   <- pep_xreact_cache_rv()
+            data.frame(
+              peptide = pep_list,
+              prioritised = paste(pep_list, row$gene_id_clean, row$orf_biotype_single, sep = "||") %in% sel_keys,
+              reason = vapply(pep_list, function(p) {
+                hits <- hcache[[p]]
+                if (is.null(hits) || "Error" %in% names(hits)) return("")
+                hits <- exclude_self_gene(hits, row$gene_id_clean, row$gene_name)
+                if (is.null(hits) || nrow(hits) == 0L) return("")
+                best <- hits[order(hits$Mismatches), ][1L, ]
+                sprintf("cross-reactive: %s (%dmm) — %s off-tissue risk",
+                        best$Gene_sym, best$Mismatches,
+                        gtex_ensg_risk(best$ENSG, gtex_mat, gtex_meta))
+              }, character(1)),
+              stringsAsFactors = FALSE
+            )
+          } else {
+            data.frame(peptide = character(0), prioritised = logical(0), reason = character(0))
+          }
+
           pages[[i]] <- tryCatch(
             .rpt_build_page(
-              row         = row,
-              pep_list    = pep_list,
+              row           = row,
+              pep_list      = pep_list,
+              pep_status_df = pep_status_df,
               rna_mat     = rna_mat,  rna_meta  = rna_meta,
               gtex_mat    = gtex_mat, gtex_meta = gtex_meta,
               tcga_mat    = tcga_mat, tcga_meta = tcga_meta,

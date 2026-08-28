@@ -72,12 +72,39 @@
           col, txt, label)
 }
 
-.rpt_build_page <- function(row, pep_list,
+# Renders the peptide prioritisation list for one candidate's report page:
+# prioritised peptides (checked in the Peptide tab) with a green check,
+# dropped ones muted with a homology reason IF that peptide's cross-
+# reactivity was actually checked in-app (pep_xreact_cache_rv is lazy) -
+# an unchecked dropped peptide shows no reason, by design.
+.rpt_pep_status_html <- function(pep_status_df) {
+  if (is.null(pep_status_df) || nrow(pep_status_df) == 0L)
+    return('<span style="color:#888">No peptide evidence.</span>')
+  esc  <- htmltools::htmlEscape
+  rows <- vapply(seq_len(nrow(pep_status_df)), function(i) {
+    r <- pep_status_df[i, ]
+    if (isTRUE(r$prioritised)) {
+      sprintf('<div><span style="color:#2e7d32">&#10003;</span> <span style="font-family:monospace">%s</span></div>',
+              esc(r$peptide))
+    } else {
+      reason <- if (nzchar(r$reason %||% ""))
+        sprintf(' &mdash; <span style="color:#b33e3e">%s</span>', esc(r$reason)) else ""
+      sprintf('<div style="color:#888"><span>&#10007;</span> <span style="font-family:monospace">%s</span>%s</div>',
+              esc(r$peptide), reason)
+    }
+  }, character(1))
+  paste(rows, collapse = "")
+}
+
+.rpt_build_page <- function(row, pep_list, pep_status_df = NULL,
                              rna_mat, rna_meta, gtex_mat, gtex_meta,
                              tcga_mat, tcga_meta, ribo_m, ribo_sm,
                              rc_mat,  rc_meta,
                              logo_uri, vh_logo_uri, gen_date, log_scale) {
-  LW <- 10.5; PH_E <- 3.72; PH_T <- 3.36
+  # Chart/sequence heights trimmed from 3.72/3.36in to make room for the
+  # peptide-status block below the sequence panel on the same fixed-size
+  # page (.rpt-slide is 408x284mm, overflow:hidden - no free space otherwise).
+  LW <- 10.5; PH_E <- 3.42; PH_T <- 3.06
   apsc    <- if (log_scale) function(x) log(pmax(as.numeric(x), 0) + 1) else function(x) pmax(as.numeric(x), 0)
   ylabel_e <- if (log_scale) "log(TPM+1)" else "TPM"
   ylabel_t <- if (log_scale) "log(PPM+1)" else "PPM"
@@ -130,6 +157,7 @@
   uri_tcl <- .save(al_t[[3]], LW * 0.70, PH_T)
 
   seq_html <- .rpt_seq_html(row$protein_seq %||% NA_character_, pep_list)
+  pep_status_html <- .rpt_pep_status_html(pep_status_df)
 
   bio_col <- unname(BIOTYPE_COLORS[row$orf_biotype_single])
   if (is.na(bio_col)) bio_col <- "#95A5A6"
@@ -200,7 +228,12 @@
         <div style="font-size:10.5pt;font-weight:700;color:#444;margin-bottom:4pt">
           Protein sequence &amp; MS peptide matches
         </div>
-        <div style="overflow:hidden">%s</div>
+        <div style="max-height:1.55in;overflow:hidden">%s</div>
+        <div style="border-top:1px solid #eee;margin:4pt 0 3pt"></div>
+        <div style="font-size:10.5pt;font-weight:700;color:#444;margin-bottom:2pt">
+          Peptide prioritisation
+        </div>
+        <div style="max-height:0.85in;overflow:hidden;font-size:8.5pt;line-height:1.5">%s</div>
       </div>
     </div>
   </div>
@@ -217,7 +250,7 @@
     tile_html,
     ylabel_e, PH_E, uri_et, uri_eg, uri_etc,
     ylabel_t, PH_T, uri_tt, uri_tp, uri_tcl,
-    seq_html, logo_uri, gen_date, vh_logo_uri
+    seq_html, pep_status_html, logo_uri, gen_date, vh_logo_uri
   )
 }
 

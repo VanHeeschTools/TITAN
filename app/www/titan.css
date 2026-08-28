@@ -1109,6 +1109,27 @@ div.dt-buttons .dt-button:hover { background: var(--clr-hover) !important; }
   transition: color .12s;  /* suppress bg transition on press-in for snap feel */
 }
 
+/* ── Peptide table: checkbox column, gene link, homology-check link ──────── */
+.titan-pep-row-checkbox { cursor: pointer; width: 13px; height: 13px; accent-color: var(--clr-primary); }
+.titan-pepgene-link {
+  cursor: pointer;
+  color: var(--clr-primary);
+  text-decoration: underline dotted rgba(47,61,70,.4);
+  text-underline-offset: 2px;
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: -1px -3px;
+}
+.titan-pepgene-link:hover { color: var(--clr-primary-dark); text-decoration-color: var(--clr-primary-dark); }
+.titan-pep-homology-check {
+  cursor: pointer;
+  color: var(--clr-primary);
+  text-decoration: underline dotted rgba(47,61,70,.4);
+  text-underline-offset: 2px;
+  font-size: 11px;
+}
+.titan-pep-homology-check:hover { color: var(--clr-primary-dark); }
+
 /* ── ORF detail mini-table (inline expand inside Gene cell) ──────────────── */
 .titan-child-wrap {
   padding: 5px 0 2px 0;
