@@ -986,7 +986,8 @@ server <- function(input, output, session) {
     updateSliderInput(session, "ppm_n_samples", min = if (n_r == 0) 0 else 1,
       max = n_r, value = floor(n_r / 4),
       label = paste0("Min. samples ≥ threshold (max ", n_r,   ")"))
-    updateSliderInput(session, "tpm_n_samples", max = n_rna, value = floor(n_rna / 4),
+    updateSliderInput(session, "tpm_n_samples",min = if (n_rna == 0) 0 else 1,
+      max = n_rna, value = floor(n_rna / 4),
       label = paste0("Min. samples ≥ threshold (max ", n_rna, ")"))
     updatePickerInput(session, "biotype_filter", choices = bios, selected = bios)
   }, ignoreInit = TRUE)

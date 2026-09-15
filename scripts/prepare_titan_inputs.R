@@ -92,7 +92,15 @@ if (length(path_errors))
   stop(sprintf("The following configured paths do not exist on disk:\n%s",
                paste(path_errors, collapse = "\n")), call. = FALSE)
 
-if (!is.null(cfg$condition) && !is.null(cfg$condition$pattern)) {
+if (!is.null(cfg$condition) && !is.null(cfg$condition$groups)) {
+  for (i in seq_along(cfg$condition$groups)) {
+    g <- cfg$condition$groups[[i]]
+    missing_g <- setdiff(c("pattern", "label"), names(g))
+    if (length(missing_g))
+      stop(sprintf("condition.groups[[%d]] missing: %s",
+                   i, paste(missing_g, collapse = ", ")), call. = FALSE)
+  }
+} else if (!is.null(cfg$condition) && !is.null(cfg$condition$pattern)) {
   missing_rc <- setdiff(c("match_label", "nomatch_label"), names(cfg$condition))
   if (length(missing_rc))
     stop(sprintf("condition.pattern is set but missing: %s",
@@ -185,12 +193,23 @@ classify_ribocrypt_samples <- function(sample_names) {
   list(primary = sample_names[is_primary], cell_line = sample_names[!is_primary])
 }
 
-# Infers sample condition from sample name using the study config pattern.
+# Infers sample condition from sample name using the study config pattern(s).
 # Applied to both RNA-seq and ribo-seq target tumor samples.
+# Supports either a single binary pattern (condition.pattern/match_label/nomatch_label)
+# or multiple ordered groups (condition.groups), first match wins, falling back to
+# condition.default_label (or tumor_type if unset).
 get_sample_condition <- function(sample_names) {
   rc <- cfg$condition
-  if (is.null(rc) || is.null(rc$pattern))
-    return(rep(TARGET_TUMOR_TYPE, length(sample_names)))
+  if (is.null(rc)) return(rep(TARGET_TUMOR_TYPE, length(sample_names)))
+
+  if (!is.null(rc$groups)) {
+    labels <- rep(rc$default_label %||% TARGET_TUMOR_TYPE, length(sample_names))
+    for (g in rev(rc$groups))  # reverse so first-listed group wins ties
+      labels[grepl(g$pattern, sample_names, ignore.case = TRUE)] <- g$label
+    return(labels)
+  }
+
+  if (is.null(rc$pattern)) return(rep(TARGET_TUMOR_TYPE, length(sample_names)))
   ifelse(grepl(rc$pattern, sample_names, ignore.case = TRUE),
          rc$match_label, rc$nomatch_label)
 }
@@ -485,14 +504,27 @@ if (has_separate_tumor) {
   tumor_mask <- coldata_gtex$tissue_type %in% TARGET_TUMOR_TYPE
   gtex_mask  <- coldata_gtex$tissue_type != TARGET_TUMOR_TYPE & !is.na(coldata_gtex$tissue_type)
 
-  cat(sprintf("      Tumour samples (%s): %d\n", TARGET_TUMOR_TYPE, sum(tumor_mask)))
-  cat(sprintf("      GTEx normal samples: %d across %d tissues\n",
-              sum(gtex_mask),
-              n_distinct(coldata_gtex$tissue_type[gtex_mask])))
+  # Intersect with matrix columns: the coldata may carry rows (e.g. reused from
+  # another study, or samples excluded from this quantification) that are not
+  # actually columns of gtex_quant — subsetting on those would error out.
+  tumor_ids   <- intersect(coldata_gtex$sample_id[tumor_mask], colnames(combined_m))
+  gtex_ids    <- intersect(coldata_gtex$sample_id[gtex_mask],  colnames(combined_m))
 
-  tumor_ids   <- coldata_gtex$sample_id[tumor_mask]
+  n_tumor_dropped <- sum(tumor_mask) - length(tumor_ids)
+  n_gtex_dropped  <- sum(gtex_mask)  - length(gtex_ids)
+  if (n_tumor_dropped > 0)
+    cat(sprintf("      NOTE: %d coldata tumour row(s) not found in gtex_quant columns — dropped.\n",
+                n_tumor_dropped))
+  if (n_gtex_dropped > 0)
+    cat(sprintf("      NOTE: %d coldata GTEx row(s) not found in gtex_quant columns — dropped.\n",
+                n_gtex_dropped))
+
+  cat(sprintf("      Tumour samples (%s): %d\n", TARGET_TUMOR_TYPE, length(tumor_ids)))
+  cat(sprintf("      GTEx normal samples: %d across %d tissues\n",
+              length(gtex_ids),
+              n_distinct(coldata_gtex$tissue_type[coldata_gtex$sample_id %in% gtex_ids])))
+
   tumor_tpm_m <- combined_m[, tumor_ids, drop = FALSE]
-  gtex_ids    <- coldata_gtex$sample_id[gtex_mask]
   gtex_tpm_m  <- combined_m[, gtex_ids, drop = FALSE]
   rm(combined_m)
 }
@@ -512,7 +544,7 @@ expr_metrics <- compute_expression_metrics(rna_tpm_sub, threshold = expr_thresho
 
 rna_sample_meta <- data.frame(
   sample_id   = tumor_ids,
-  tissue_type = TARGET_TUMOR_TYPE,
+  tissue_type = rep(TARGET_TUMOR_TYPE, length(tumor_ids)),
   condition   = get_sample_condition(tumor_ids)
 )
 
@@ -836,10 +868,16 @@ if (!requireNamespace("float", quietly = TRUE))
   stop("Package 'float' is required. Install with: install.packages('float')")
 to_fl <- function(m) if (!is.null(m) && is.matrix(m)) float::fl(m) else m
 
+# The app's filter treats rna_tpm_mat == NULL as "no per-sample RNA-seq data" and
+# falls back to a target_expression_num_samples-based filter that tolerates NA
+# (app.R filtered_data_raw). A real but 0-column matrix would instead be treated
+# as "RNA-seq present, 0 samples pass threshold for every gene", filtering out
+# every ORF — so studies with no tumour RNA-seq (tumor_ids empty) must save NULL,
+# not an empty matrix.
 app_data <- list(
   orf_table             = titan_table,
   ribo_ppm_samples      = to_fl(ribo_ppm_mat),
-  rna_tpm_mat           = to_fl(rna_tpm_sub),
+  rna_tpm_mat           = if (ncol(rna_tpm_sub) > 0) to_fl(rna_tpm_sub) else NULL,
   ribo_sample_meta      = ribo_sample_meta,
   rna_sample_meta       = rna_sample_meta,
   gtex_tpm_mat          = to_fl(gtex_tpm_sub),
