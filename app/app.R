@@ -1167,8 +1167,9 @@ server <- function(input, output, session) {
       value = 0.2, {
         result <- build_pep_orf_matches(
           bma$cur_peps, bma$meta, orf_table_rv(),
-          hits     = if (has_precomputed) dat$precomputed_pep_hits else NULL,
-          progress = function(value, detail) setProgress(value, detail = detail)
+          hits       = if (has_precomputed) dat$precomputed_pep_hits else NULL,
+          canon_hits = if (has_precomputed) dat$precomputed_canonical_pep_hits else NULL,
+          progress   = function(value, detail) setProgress(value, detail = detail)
         )
         all_matches_rv(result)
       }
@@ -1187,6 +1188,22 @@ server <- function(input, output, session) {
       unique(trimws(unlist(strsplit(ppd$orf_ids, ",\\s*", perl = TRUE))))
     else unique(md$orf_id)
     tbl <- orf_table_rv()[orf_table_rv()$orf_id %in% matched_ids, ]
+
+    # Gencode-only / canonical-only rows (peptide-matched genes with no
+    # candidate ORF at all) aren't in orf_table_rv() — pull their one-row
+    # summaries from matched_data() so they're browsable via the gene/ORF
+    # dropdowns here too, not just reachable through detail_orf()'s fallback.
+    extra_ids <- setdiff(matched_ids, tbl$orf_id)
+    if (length(extra_ids) > 0L) {
+      extra <- md[md$orf_id %in% extra_ids, , drop = FALSE]
+      extra <- extra[!duplicated(extra$orf_id), , drop = FALSE]
+      common_cols <- intersect(names(tbl), names(extra))
+      if (length(common_cols) > 0L) {
+        extra_aligned <- extra[, common_cols, drop = FALSE]
+        for (mc in setdiff(names(tbl), names(extra_aligned))) extra_aligned[[mc]] <- NA
+        tbl <- bind_rows(tbl, extra_aligned[, names(tbl), drop = FALSE])
+      }
+    }
     if (nrow(tbl) == 0L) NULL else tbl
   })
 
@@ -1600,9 +1617,19 @@ server <- function(input, output, session) {
       message = "Matching peptides to ORFs…",
       detail  = sprintf("%s peptides — expected time %s", formatC(n_pep, big.mark = ","), est_txt),
       value = 0.1, {
+      # Reference-proteome cross-match — only valid when the currently-loaded
+      # peptides are exactly the study's precomputed set (no live index for
+      # the reference proteome, so an arbitrary user upload can't be checked).
+      dat_for_canon  <- app_data_rv()
+      cur_peps_canon <- sort(unique(trimws(ms_peptides())))
+      cur_peps_canon <- cur_peps_canon[nchar(cur_peps_canon) >= 8L]
+      canon_valid <- !is.null(dat_for_canon) &&
+        identical(cur_peps_canon, dat_for_canon$precomputed_peptides)
+
       result <- build_pep_orf_matches(
         ms_peptides(), ms_meta(), orf_table_rv(),
-        progress = function(value, detail) setProgress(value, detail = detail)
+        canon_hits = if (canon_valid) dat_for_canon$precomputed_canonical_pep_hits else NULL,
+        progress   = function(value, detail) setProgress(value, detail = detail)
       )
       all_matches_rv(result)
     })
@@ -1779,8 +1806,9 @@ server <- function(input, output, session) {
     if (is.null(m) || nrow(m) == 0) return(NULL)
     fd <- filtered_data()
     if (is.null(fd) || nrow(fd) == 0) return(NULL)
-    gc_pass <- if ("gencode_only" %in% colnames(m)) m$gencode_only %in% TRUE else FALSE
-    m[m$orf_id %in% fd$orf_id | gc_pass, , drop = FALSE]
+    gc_pass    <- if ("gencode_only" %in% colnames(m)) m$gencode_only %in% TRUE else FALSE
+    canon_pass <- if ("canonical_only" %in% colnames(m)) m$canonical_only %in% TRUE else FALSE
+    m[m$orf_id %in% fd$orf_id | gc_pass | canon_pass, , drop = FALSE]
   })
 
   safe_matched_data <- reactive({
@@ -2845,10 +2873,15 @@ server <- function(input, output, session) {
     to_check <- setdiff(unique(pgd$peptide), already)
     if (length(to_check) == 0L) return(invisible(NULL))
 
+    md <- tryCatch(isolate(matched_data()), error = function(e) NULL)
+
     ref <- build_pep_reference()
     if ("Error" %in% names(ref)) {
       cache <- isolate(pep_xreact_cache_rv())
-      for (p in to_check) cache[[p]] <- ref
+      for (p in to_check) {
+        merged <- add_inhouse_cross_matches(data.frame(), p, md)
+        cache[[p]] <- if (!is.null(merged) && nrow(merged) > 0L) merged else ref
+      }
       pep_xreact_cache_rv(cache)
       return(invisible(NULL))
     }
@@ -2859,7 +2892,13 @@ server <- function(input, output, session) {
       for (i in seq_along(to_check)) {
         setProgress(i / length(to_check),
                     detail = sprintf("%d of %d peptides", i, length(to_check)))
-        cache[[to_check[i]]] <- scan_peptide_homology(to_check[i], rna_mat, ref = ref)
+        # Fold in same-peptide matches from titan's own candidate ORF list
+        # (in-house cross-reactivity, not just the canonical Ensembl homology
+        # scan). Self-exclusion happens later, per consuming row
+        # (make_pep_homology_cell()/exclude_self_gene()), since the same
+        # peptide can be shown from multiple rows with different "self" genes.
+        hits <- scan_peptide_homology(to_check[i], rna_mat, ref = ref)
+        cache[[to_check[i]]] <- add_inhouse_cross_matches(hits, to_check[i], md)
       }
       pep_xreact_cache_rv(cache)
     })
@@ -3677,13 +3716,31 @@ server <- function(input, output, session) {
       } else {
         rna_mat <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
         hits    <- scan_peptide_homology(peps, rna_mat)
-        if (!"Error" %in% names(hits) && nrow(hits) > 0L) {
-          orf_row  <- filter(orf_table_rv(), orf_id == oid)
-          orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
-          orf_name <- if (nrow(orf_row) > 0L) orf_row$gene_name[1L]     else NA_character_
-          hits <- exclude_self_gene(hits, orf_ensg, orf_name)
+        # Fold in same-peptide matches from titan's own candidate ORF list
+        # (in-house cross-reactivity, not just the canonical Ensembl
+        # homology scan) — computed even when the Ensembl scan errored out,
+        # so a paralog/isoform hit still surfaces; the Error is only kept if
+        # there's nothing else to show instead.
+        is_err <- is.data.frame(hits) && "Error" %in% names(hits)
+        merged <- add_inhouse_cross_matches(if (is_err) data.frame() else hits, peps, md)
+        if (is_err && (is.null(merged) || nrow(merged) == 0L)) {
+          store_xr(hits)
+        } else {
+          hits <- merged
+          if (nrow(hits) > 0L) {
+            # Exclude self: drop hits where ENSG or gene name match the query
+            # ORF. Gencode-only/canonical-only oids (no candidate ORF) aren't
+            # in orf_table_rv() at all — fall back to matched_data(), same as
+            # detail_orf()'s own fallback, so self-hits still get excluded.
+            orf_row  <- filter(orf_table_rv(), orf_id == oid)
+            if (nrow(orf_row) == 0L && !is.null(md))
+              orf_row <- md %>% filter(orf_id == oid) %>% slice(1L)
+            orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
+            orf_name <- if (nrow(orf_row) > 0L) orf_row$gene_name[1L]     else NA_character_
+            hits <- exclude_self_gene(hits, orf_ensg, orf_name)
+          }
+          store_xr(hits)
         }
-        store_xr(hits)
       }
     }
 
@@ -3695,7 +3752,11 @@ server <- function(input, output, session) {
     req(nzchar(pep %||% ""))
     if (!is.null(pep_xreact_cache_rv()[[pep]])) return(invisible(NULL))
     rna_mat <- tryCatch(rna_tpm_rv(), error = function(e) NULL)
+    md      <- tryCatch(matched_data(), error = function(e) NULL)
     hits    <- scan_peptide_homology(pep, rna_mat)
+    is_err  <- is.data.frame(hits) && "Error" %in% names(hits)
+    merged  <- add_inhouse_cross_matches(if (is_err) data.frame() else hits, pep, md)
+    hits    <- if (is_err && (is.null(merged) || nrow(merged) == 0L)) hits else merged
     cache <- pep_xreact_cache_rv(); cache[[pep]] <- hits; pep_xreact_cache_rv(cache)
   }, ignoreNULL = TRUE)
 
@@ -3847,8 +3908,13 @@ server <- function(input, output, session) {
     # Deduplicate to one row per gene (keep highest identity hit)
     result <- result[order(result$ENSG, -result$pident), ]
     result <- result[!duplicated(result$ENSG), ]
-    # Exclude self: drop hits where the target gene is the ORF's own gene
+    # Exclude self: drop hits where the target gene is the ORF's own gene.
+    # Gencode-only/canonical-only oids (no candidate ORF) aren't in
+    # orf_table_rv() at all — fall back to detail_orf() (which already
+    # resolves those via matched_data()) so self-hits still get excluded.
     orf_row  <- filter(orf_table_rv(), orf_id == oid)
+    if (nrow(orf_row) == 0L)
+      orf_row <- tryCatch(detail_orf(), error = function(e) orf_row)
     orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
     if (!is.na(orf_ensg))
       result <- result[is.na(result$ENSG) | result$ENSG != orf_ensg, , drop = FALSE]

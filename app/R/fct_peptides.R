@@ -269,8 +269,13 @@ render_protein_seq_html <- function(seq, pep_list, pep_info = list()) {
 ## `progress`, if given, is called as progress(value, detail) at each stage -
 ## callers wrap this in their own withProgress() and pass e.g.
 ## function(v, d) setProgress(v, detail = d).
+## `canon_hits`, if supplied, is dat$precomputed_canonical_pep_hits (from
+## prepare_titan_inputs.R's paths.reference_proteome) - the caller decides
+## whether it's valid for this peptide set (same fingerprint check already
+## used for `hits`) and passes NULL when it isn't.
 build_pep_orf_matches <- function(peptides, meta, orf_tbl, hits = NULL,
-                                   progress = function(value, detail) NULL) {
+                                   progress = function(value, detail) NULL,
+                                   canon_hits = NULL) {
   if (is.null(hits)) {
     progress(0.3, "Matching peptides to ORFs…")
     hits <- match_peptides(peptides, orf_tbl)
@@ -345,10 +350,50 @@ build_pep_orf_matches <- function(peptides, meta, orf_tbl, hits = NULL,
     hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
   }
 
+  # Reference-proteome cross-match (canonical-only genes with no candidate
+  # ORF at all): only for peptides that still have no match at this point.
+  if (!is.null(canon_hits)) {
+    residual_peps <- if (!is.null(hits) && nrow(hits) > 0L)
+      setdiff(peptides, unique(hits$matched_peptide)) else peptides
+    canon_rows <- build_canonical_only_rows(residual_peps, canon_hits)
+    if (!is.null(canon_rows) && nrow(canon_rows) > 0L)
+      hits <- bind_rows(hits, canon_rows)
+  }
+
   progress(0.9, "Joining MS metadata…")
   if (!is.null(hits) && nrow(hits) > 0L) {
     left_join(hits, meta, by = "matched_peptide")
   } else {
     data.frame(orf_id = character(0), matched_peptide = character(0))
   }
+}
+
+## Builds ORF-shaped rows for peptides that only matched a canonical reference
+## protein (dat$precomputed_canonical_pep_hits, from prepare_titan_inputs.R's
+## paths.reference_proteome) — the gene has no candidate ORF at all, so there
+## is no ribo-seq/translation evidence to show; target_translation_*/
+## ribocrypt_* columns are simply absent here and come back as NA once
+## bind_rows() merges these into the main hits table.
+build_canonical_only_rows <- function(residual_peps, canon_hits) {
+  if (length(residual_peps) == 0L || is.null(canon_hits) || nrow(canon_hits) == 0L) return(NULL)
+  rows <- canon_hits[canon_hits$matched_peptide %in% residual_peps, , drop = FALSE]
+  if (nrow(rows) == 0L) return(NULL)
+  rows$orf_id             <- paste0("CANON_", rows$gene_id)
+  rows$gene_name          <- rows$gene_symbol
+  rows$orf_biotype_single <- "Canonical (no ORF candidate)"
+  rows$gencode_match_ids  <- ""
+  rows$gencode_only       <- FALSE
+  rows$canonical_only     <- TRUE
+  # No candidate ORF exists for these genes, so there's no ORF-level coordinate
+  # metadata at all — protein_seq (and protein_length derived from it) IS
+  # available though, straight from the reference proteome match, so the ORF
+  # Detail view can still show the canonical sequence. Set explicitly rather
+  # than relying on bind_rows() to backfill NA — if `hits` is itself NULL/empty
+  # (a peptide set with zero in-house or Gencode matches), there's no other
+  # side of the bind for these columns to inherit, and prioritised_data()
+  # requires them.
+  rows$protein_length <- nchar(rows$protein_seq)
+  for (col in c("chr", "orf_start", "orf_end", "strand", "start_codon", "gene_biotype"))
+    rows[[col]] <- NA
+  distinct(rows, orf_id, matched_peptide, .keep_all = TRUE)
 }

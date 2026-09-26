@@ -57,8 +57,9 @@
     '<span style="background:#e2e3e5;color:#383d41;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600">Non-specific</span>'
 }
 
-.rpt_risk_badge <- function(tumor_only, tissues_q3_gt1) {
-  label <- off_tissue_risk(tumor_only, tissues_q3_gt1, off_tissue_risk_adult)
+.rpt_risk_badge <- function(tumor_only, tissues_q3_gt1, gtex_median_tpm = NA) {
+  label <- off_tissue_risk(tumor_only, tissues_q3_gt1, off_tissue_risk_adult,
+                            gtex_covered = !is.na(gtex_median_tpm))
   col <- switch(label,
     "Safe"        = "#21ae7f",
     "Acceptable"  = "#37a4a2",
@@ -245,7 +246,7 @@
 </div>',
     row$gene_name, bio_col, bio_col, row$orf_biotype_single,
     paste0(.rpt_badge(row$GTEX_tumor_only, row$GTEX_tumor_enriched), " ",
-           .rpt_risk_badge(row$GTEX_tumor_only, row$GTEX_tissues_q3_gt1)),
+           .rpt_risk_badge(row$GTEX_tumor_only, row$GTEX_tissues_q3_gt1, row$GTEX_median_TPM)),
     n_orfs_str, n_pep_str, row$priority_score,
     tile_html,
     ylabel_e, PH_E, uri_et, uri_eg, uri_etc,

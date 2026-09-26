@@ -142,6 +142,36 @@ scan_peptide_homology <- function(peptides, rna_mat = NULL, ref = NULL) {
   hits
 }
 
+# Merges same-peptide matches from titan's own candidate ORF list (in-house
+# cross-reactivity — e.g. a paralog or isoform also matched by this peptide,
+# not just a canonical Ensembl reference hit) into a scan_peptide_homology()
+# result. Exact matches only (Mismatches = 0), gene-level, deduped against the
+# Ensembl hits by ENSG - keeps whichever has the lower Mismatches, so an
+# in-house exact match always wins over a 1-mismatch Ensembl hit for the same
+# gene. Does NOT self-exclude (same reasoning as scan_peptide_homology(): the
+# same peptide can be shown from multiple rows, each with a different "self"
+# gene) - callers apply exclude_self_gene() same as they already do.
+# `md`, if supplied, is matched_data() (or NULL to skip - e.g. before any
+# peptides are loaded).
+add_inhouse_cross_matches <- function(hits, peps, md) {
+  if (is.null(md) || (is.data.frame(hits) && "Error" %in% names(hits))) return(hits)
+  ih <- md[md$matched_peptide %in% peps, , drop = FALSE]
+  if (nrow(ih) == 0L) return(hits)
+  ih <- ih[!duplicated(ih[, c("matched_peptide", "gene_id_clean")]), , drop = FALSE]
+  inhouse <- data.frame(
+    Peptide     = ih$matched_peptide,
+    Query_html  = ih$matched_peptide,
+    Target_html = ih$matched_peptide,
+    Gene_sym    = ih$gene_name,
+    ENSG        = ih$gene_id_clean,
+    Mismatches  = 0L,
+    stringsAsFactors = FALSE
+  )
+  combined <- if (is.null(hits) || nrow(hits) == 0L) inhouse else rbind(hits, inhouse)
+  combined <- combined[order(combined$ENSG, combined$Mismatches), ]
+  combined[!duplicated(combined$ENSG), , drop = FALSE]
+}
+
 # Drops rows in `hits` (as returned by scan_peptide_homology()) whose ENSG or
 # Gene_sym matches the given self gene - shared by both call sites so the
 # exact self-exclusion rule (match by either ENSG or gene name, since some
