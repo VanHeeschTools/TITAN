@@ -111,6 +111,15 @@ has_peptides <- !is.null(cfg$paths$peptides) && nzchar(cfg$paths$peptides %||% "
 if (has_peptides && !file.exists(cfg$paths$peptides))
   stop(sprintf("paths.peptides specified but not found: %s", cfg$paths$peptides), call. = FALSE)
 
+# reference_proteome is optional; if provided, peptides that don't match any
+# candidate ORF are additionally checked against this canonical proteome (genes
+# with no called ncORF candidate have no protein_seq in ncorfs to match against).
+has_reference_proteome <- !is.null(cfg$paths$reference_proteome) &&
+  nzchar(cfg$paths$reference_proteome %||% "")
+if (has_reference_proteome && !file.exists(cfg$paths$reference_proteome))
+  stop(sprintf("paths.reference_proteome specified but not found: %s",
+               cfg$paths$reference_proteome), call. = FALSE)
+
 for (th_name in c("expression", "gtex_q3")) {
   v <- cfg$thresholds[[th_name]]
   if (!is.null(v) && (!is.numeric(v) || v <= 0))
@@ -255,6 +264,44 @@ load_peptide_file <- function(path) {
   col <- if (length(col)) col[1] else colnames(dat)[1]
   peps <- unique(trimws(dat[[col]]))
   peps[nchar(peps) >= 8L]
+}
+
+# Loads an Ensembl-style peptide FASTA (header: ">ENSPxxx ... gene:ENSGxxx ...
+# gene_symbol:xxx ...") into a data.frame of protein_id/gene_id/gene_symbol/
+# protein_seq, one row per protein. Used only as a secondary lookup for peptides
+# that don't match any candidate ORF (genes with no called ncORF have no
+# protein_seq in ncorfs at all, so they can never match there).
+load_reference_proteome <- function(path) {
+  if (!requireNamespace("Biostrings", quietly = TRUE))
+    stop("Package 'Biostrings' is required for paths.reference_proteome. Install with: BiocManager::install('Biostrings')")
+  aa <- Biostrings::readAAStringSet(path)
+  headers <- names(aa)
+  data.frame(
+    protein_id   = sub("^(\\S+).*", "\\1", headers),
+    gene_id      = strip_ensg_version(sub(".*gene:(\\S+).*", "\\1", headers)),
+    gene_symbol  = sub(".*gene_symbol:(\\S+).*", "\\1", headers),
+    protein_seq  = as.character(aa),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Exact substring match of `peptides` against `ref_proteome` (from
+# load_reference_proteome()). Brute-force rather than the k-mer index below
+# (match_peptides()) — this only ever runs on the small residue of peptides
+# that didn't match any candidate ORF, so a full index isn't worth building.
+match_peptides_reference <- function(peptides, ref_proteome) {
+  peptides <- unique(trimws(peptides))
+  peptides <- peptides[nchar(peptides) >= 8]
+  if (length(peptides) == 0 || is.null(ref_proteome) || nrow(ref_proteome) == 0) return(NULL)
+  hits <- lapply(peptides, function(p) {
+    hit_rows <- ref_proteome[stringi::stri_detect_fixed(ref_proteome$protein_seq, p), , drop = FALSE]
+    if (nrow(hit_rows) == 0) return(NULL)
+    hit_rows$matched_peptide <- p
+    hit_rows
+  })
+  hits <- do.call(rbind, hits[!vapply(hits, is.null, logical(1))])
+  if (is.null(hits) || nrow(hits) == 0) return(NULL)
+  hits[, c("matched_peptide", "gene_id", "gene_symbol", "protein_id", "protein_seq")]
 }
 
 # Exact substring peptide matching. Must be kept in sync with app/R/fct_peptides.R.
@@ -823,6 +870,7 @@ cat(sprintf("  ribocrypt_primary_PPM  : %s have data\n", pct(titan_table$ribocry
 # the app falls back to live matching if the loaded peptide file differs.
 precomputed_pep_hits <- NULL
 precomputed_peptides <- NULL
+precomputed_canonical_pep_hits <- NULL
 
 if (has_peptides) {
   cat(sprintf("\n[7/6] Pre-matching peptides from: %s\n", cfg$paths$peptides))
@@ -856,6 +904,43 @@ if (has_peptides) {
     } else {
       cat("      No peptide matches found.\n")
       precomputed_peptides <- sort(unique(trimws(pep_seqs)))
+    }
+  }
+
+  # Peptides with no ncORF candidate match: their gene may simply have had no
+  # candidate ORF called (canonical-only genes aren't in ncorfs at all), so
+  # check them against the full reference proteome instead.
+  if (has_reference_proteome && !is.null(precomputed_peptides)) {
+    unmatched_peps <- setdiff(precomputed_peptides,
+                              unique(precomputed_pep_hits$matched_peptide))
+    if (length(unmatched_peps) > 0L) {
+      cat(sprintf("\n[7b/6] Checking %s ORF-unmatched peptide(s) against reference proteome: %s\n",
+                  formatC(length(unmatched_peps), big.mark = ","), cfg$paths$reference_proteome))
+      ref_proteome <- tryCatch(
+        load_reference_proteome(cfg$paths$reference_proteome),
+        error = function(e) {
+          warning(sprintf("Reference-proteome matching skipped: %s", e$message), call. = FALSE)
+          NULL
+        }
+      )
+      canon_hits <- match_peptides_reference(unmatched_peps, ref_proteome)
+      if (!is.null(canon_hits) && nrow(canon_hits) > 0L) {
+        # Enrich with gene-level expression (target/GTEx/TCGA) so the app can
+        # show these as prioritisation-table rows without needing the full,
+        # ncorfs-independent per-gene tables loaded separately — there is no
+        # ribo-seq/translation evidence to attach (no candidate ORF exists for
+        # these genes), so target_translation_*/ribocrypt_* columns are left
+        # out entirely; the app fills them with NA when merging.
+        canon_hits$gene_id_clean <- canon_hits$gene_id
+        for (gene_tbl in list(expr_metrics, gtex_data, tcga_tumor_metrics, tcga_normal_metrics))
+          canon_hits <- canon_hits %>% left_join(gene_tbl, by = "gene_id_clean")
+        precomputed_canonical_pep_hits <- canon_hits
+        cat(sprintf("      %s hit rows | %s peptides matched in reference proteome\n",
+                    formatC(nrow(canon_hits), big.mark = ","),
+                    formatC(n_distinct(canon_hits$matched_peptide), big.mark = ",")))
+      } else {
+        cat("      No matches found in reference proteome.\n")
+      }
     }
   }
 }
@@ -892,6 +977,7 @@ app_data <- list(
   ),
   precomputed_pep_hits = precomputed_pep_hits,
   precomputed_peptides = precomputed_peptides,
+  precomputed_canonical_pep_hits = precomputed_canonical_pep_hits,
   study_id    = cfg$study_id,
   prepared_on = Sys.time()
 )

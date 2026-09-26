@@ -1116,6 +1116,17 @@ server <- function(input, output, session) {
       } else if (!is.null(hits) && nrow(hits) > 0L) {
         hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
       }
+
+      # Reference-proteome cross-match — cur_peps was already confirmed above
+      # (fingerprint check) to equal dat$precomputed_peptides, so no re-check needed.
+      if (!is.null(dat$precomputed_canonical_pep_hits)) {
+        residual_peps <- if (!is.null(hits) && nrow(hits) > 0L)
+          setdiff(cur_peps, unique(hits$matched_peptide)) else cur_peps
+        canon_rows <- build_canonical_only_rows(residual_peps, dat$precomputed_canonical_pep_hits)
+        if (!is.null(canon_rows) && nrow(canon_rows) > 0L)
+          hits <- bind_rows(hits, canon_rows)
+      }
+
       setProgress(0.9, detail = "Joining MS metadata…")
       result <- if (!is.null(hits) && nrow(hits) > 0L) {
         left_join(hits, meta, by = "matched_peptide")
@@ -1138,6 +1149,22 @@ server <- function(input, output, session) {
       unique(trimws(unlist(strsplit(ppd$orf_ids, ",\\s*", perl = TRUE))))
     else unique(md$orf_id)
     tbl <- orf_table_rv()[orf_table_rv()$orf_id %in% matched_ids, ]
+
+    # Gencode-only / canonical-only rows (peptide-matched genes with no
+    # candidate ORF at all) aren't in orf_table_rv() — pull their one-row
+    # summaries from matched_data() so they're browsable via the gene/ORF
+    # dropdowns here too, not just reachable through detail_orf()'s fallback.
+    extra_ids <- setdiff(matched_ids, tbl$orf_id)
+    if (length(extra_ids) > 0L) {
+      extra <- md[md$orf_id %in% extra_ids, , drop = FALSE]
+      extra <- extra[!duplicated(extra$orf_id), , drop = FALSE]
+      common_cols <- intersect(names(tbl), names(extra))
+      if (length(common_cols) > 0L) {
+        extra_aligned <- extra[, common_cols, drop = FALSE]
+        for (mc in setdiff(names(tbl), names(extra_aligned))) extra_aligned[[mc]] <- NA
+        tbl <- bind_rows(tbl, extra_aligned[, names(tbl), drop = FALSE])
+      }
+    }
     if (nrow(tbl) == 0L) NULL else tbl
   })
 
@@ -1611,6 +1638,23 @@ server <- function(input, output, session) {
       } else if (!is.null(hits) && nrow(hits) > 0L) {
         hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
       }
+
+      # Reference-proteome cross-match (canonical-only genes with no candidate
+      # ORF at all): only valid when the currently-loaded peptides are exactly
+      # the study's precomputed set — there is no live index for the reference
+      # proteome, so an arbitrary user upload can't be checked against it here.
+      dat_for_canon <- app_data_rv()
+      cur_peps_canon <- sort(unique(trimws(ms_peptides())))
+      cur_peps_canon <- cur_peps_canon[nchar(cur_peps_canon) >= 8L]
+      if (!is.null(dat_for_canon$precomputed_canonical_pep_hits) &&
+          identical(cur_peps_canon, dat_for_canon$precomputed_peptides)) {
+        residual_peps <- if (!is.null(hits) && nrow(hits) > 0L)
+          setdiff(cur_peps_canon, unique(hits$matched_peptide)) else cur_peps_canon
+        canon_rows <- build_canonical_only_rows(residual_peps, dat_for_canon$precomputed_canonical_pep_hits)
+        if (!is.null(canon_rows) && nrow(canon_rows) > 0L)
+          hits <- bind_rows(hits, canon_rows)
+      }
+
       setProgress(0.85, detail = "Joining MS metadata…")
       result <- if (!is.null(hits) && nrow(hits) > 0L) {
         left_join(hits, ms_meta(), by = "matched_peptide")
@@ -1662,12 +1706,17 @@ server <- function(input, output, session) {
       )
     } else if (started_rv()) {
       md <- tryCatch(matched_data(), error = function(e) NULL)
+      # md$orf_id/matched_peptide already include canonical-only rows (genes
+      # with no candidate ORF, matched via paths.reference_proteome) — they're
+      # merged into all_matches_rv() at match time (build_canonical_only_rows()),
+      # not computed separately here.
       counts_str <- if (!is.null(md) && nrow(md) > 0L) {
         n_pep  <- n_distinct(md$matched_peptide)
         n_orfs <- n_distinct(md$orf_id)
         paste0(formatC(n_orfs, big.mark = ","), " ORFs and ",
                formatC(n_pep,  big.mark = ","), " peptides matched.")
       } else NULL
+
       div(
         class = "mt-4 text-center text-success",
         icon("circle-check", class = "fa-2x"),
@@ -1764,8 +1813,9 @@ server <- function(input, output, session) {
     if (is.null(m) || nrow(m) == 0) return(NULL)
     fd <- filtered_data()
     if (is.null(fd) || nrow(fd) == 0) return(NULL)
-    gc_pass <- if ("gencode_only" %in% colnames(m)) m$gencode_only %in% TRUE else FALSE
-    m[m$orf_id %in% fd$orf_id | gc_pass, , drop = FALSE]
+    gc_pass    <- if ("gencode_only" %in% colnames(m)) m$gencode_only %in% TRUE else FALSE
+    canon_pass <- if ("canonical_only" %in% colnames(m)) m$canonical_only %in% TRUE else FALSE
+    m[m$orf_id %in% fd$orf_id | gc_pass | canon_pass, , drop = FALSE]
   })
 
   safe_matched_data <- reactive({
@@ -2532,7 +2582,8 @@ server <- function(input, output, session) {
           div(class = "text-end mt-1",
             HTML(paste0(
               spec_badge_html(row$GTEX_tumor_only, row$GTEX_tumor_enriched), " ",
-              off_tissue_risk_html(off_tissue_risk(row$GTEX_tumor_only, row$GTEX_tissues_q3_gt1))
+              off_tissue_risk_html(off_tissue_risk(row$GTEX_tumor_only, row$GTEX_tissues_q3_gt1,
+                                                    gtex_covered = !is.na(row$GTEX_median_TPM)))
             )),
             tags$span(class = "prio-detail-score-badge",
                       sprintf("%.1f", row$priority_score)),
@@ -2988,7 +3039,7 @@ server <- function(input, output, session) {
       cond[is.na(cond)] <- "Tumor"
       df_r <- data.frame(g = cond, y = apply_scale(ppm_raw))
       p1 <- do.call(plot_ly, c(list(df_r, x = ~g, y = ~y), make_box_args("#2F3D46"))) %>%
-        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE, tickangle = 0),
+        layout(xaxis = list(title = list(text = "", standoff = 4), automargin = TRUE, tickangle = -45),
                yaxis = list(title = y_label))
     } else {
       p1 <- no_data_plot("Target tumor", "No ribo-seq data for this ORF")
@@ -3361,14 +3412,37 @@ server <- function(input, output, session) {
         cache <- xreact_cache_rv(); cache[[oid]] <- result; xreact_cache_rv(cache)
       }
 
+      # Other candidate ORFs (titan's own list) matched by the same peptide(s):
+      # real, in-study cross-reactivity, not just a canonical-proteome homolog.
+      # Gene-level, exact matches only (match_peptides() doesn't do mismatches),
+      # so Mismatches = 0. Computed independently of the Ensembl check below so
+      # it still shows even when the Ensembl reference index is unavailable.
+      inhouse_hits <- if (!is.null(md) && length(peps) > 0L) {
+        ih <- md %>%
+          filter(matched_peptide %in% peps, orf_id != oid) %>%
+          distinct(matched_peptide, gene_id_clean, .keep_all = TRUE)
+        if (nrow(ih) > 0L)
+          transmute(ih,
+            Peptide     = matched_peptide,
+            Query_html  = matched_peptide,
+            Target_html = matched_peptide,
+            Gene_sym    = gene_name,
+            ENSG        = gene_id_clean,
+            Mismatches  = 0L
+          )
+        else NULL
+      } else NULL
+
       if (length(peps) == 0L) {
         store_xr(data.frame())
       } else if (is.null(ensembl_pep_index)) {
-        store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
+        if (!is.null(inhouse_hits)) store_xr(inhouse_hits)
+        else store_xr(data.frame(Error = "Ensembl 114 pep index not loaded — run scripts/reference_prep/01_prep_ensembl_pep.R first."))
       } else {
         pep_seqs <- ensembl_pep_seqs_lazy()
         if (is.null(pep_seqs) || length(pep_seqs) == 0L) {
-          store_xr(data.frame(Error = "Ensembl 114 pep sequences could not be loaded."))
+          if (!is.null(inhouse_hits)) store_xr(inhouse_hits)
+          else store_xr(data.frame(Error = "Ensembl 114 pep sequences could not be loaded."))
           return()
         }
         ref_set <- Biostrings::AAStringSet(pep_seqs)
@@ -3449,12 +3523,19 @@ server <- function(input, output, session) {
                 build_rows(idx1, m1, 1L),
                 build_rows(idx2, m2, 2L))
         })))
+        if (!is.null(inhouse_hits))
+          hits <- if (is.null(hits) || nrow(hits) == 0L) inhouse_hits else rbind(hits, inhouse_hits)
         # Final dedup across peptides: keep best (lowest) Mismatches per gene
         if (!is.null(hits) && nrow(hits) > 0L) {
           hits <- hits[order(hits$ENSG, hits$Mismatches), ]
           hits <- hits[!duplicated(hits$ENSG), ]
-          # Exclude self: drop hits where ENSG or gene name match the query ORF
+          # Exclude self: drop hits where ENSG or gene name match the query ORF.
+          # Gencode-only/canonical-only oids (no candidate ORF) aren't in
+          # orf_table_rv() at all — fall back to matched_data(), same as
+          # detail_orf()'s own fallback, so self-hits still get excluded.
           orf_row  <- filter(orf_table_rv(), orf_id == oid)
+          if (nrow(orf_row) == 0L && !is.null(md))
+            orf_row <- md %>% filter(orf_id == oid) %>% slice(1L)
           orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
           orf_name <- if (nrow(orf_row) > 0L) orf_row$gene_name[1L]     else NA_character_
           if (!is.na(orf_ensg))
@@ -3630,8 +3711,13 @@ server <- function(input, output, session) {
     # Deduplicate to one row per gene (keep highest identity hit)
     result <- result[order(result$ENSG, -result$pident), ]
     result <- result[!duplicated(result$ENSG), ]
-    # Exclude self: drop hits where the target gene is the ORF's own gene
+    # Exclude self: drop hits where the target gene is the ORF's own gene.
+    # Gencode-only/canonical-only oids (no candidate ORF) aren't in
+    # orf_table_rv() at all — fall back to detail_orf() (which already
+    # resolves those via matched_data()) so self-hits still get excluded.
     orf_row  <- filter(orf_table_rv(), orf_id == oid)
+    if (nrow(orf_row) == 0L)
+      orf_row <- tryCatch(detail_orf(), error = function(e) orf_row)
     orf_ensg <- if (nrow(orf_row) > 0L) orf_row$gene_id_clean[1L] else NA_character_
     if (!is.na(orf_ensg))
       result <- result[is.na(result$ENSG) | result$ENSG != orf_ensg, , drop = FALSE]

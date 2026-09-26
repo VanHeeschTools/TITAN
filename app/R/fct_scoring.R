@@ -34,9 +34,11 @@ score_candidates <- function(df, w) {
   # prio_table_df() and make_child_html() reuse it instead of re-running the
   # same mapply() a second and third time on the same (tumor_only, tissues)
   # pairs.
-  .tq_all <- if ("GTEX_tissues_q3_gt1" %in% names(df)) df$GTEX_tissues_q3_gt1 else rep(NA_character_, nrow(df))
-  .off_tissue_lab <- unname(mapply(function(to, tis) off_tissue_risk(to, tis, off_tissue_risk_adult),
-                                    df$GTEX_tumor_only, .tq_all))
+  .tq_all  <- if ("GTEX_tissues_q3_gt1" %in% names(df)) df$GTEX_tissues_q3_gt1 else rep(NA_character_, nrow(df))
+  .gtex_ok <- if ("GTEX_median_TPM" %in% names(df)) !is.na(df$GTEX_median_TPM) else rep(FALSE, nrow(df))
+  .off_tissue_lab <- unname(mapply(
+    function(to, tis, cov) off_tissue_risk(to, tis, off_tissue_risk_adult, gtex_covered = cov),
+    df$GTEX_tumor_only, .tq_all, .gtex_ok))
   .off_tissue_sig <- vapply(.off_tissue_lab, function(r)
     switch(r, "Safe" = 1, "Acceptable" = 0.75, "Borderline" = 0.5, "Critical" = 0, "Unavailable" = 0, 0),
     numeric(1))
@@ -92,13 +94,25 @@ pct_bar_html <- function(pct, color) {
 .RISK_SORT <- c("Safe" = 1L, "Acceptable" = 2L, "Borderline" = 3L, "Critical" = 4L, "Unavailable" = 5L)
 
 off_tissue_risk <- function(tumor_only, tissues_q3_gt1,
-                             risk_map = off_tissue_risk_adult) {
+                             risk_map = off_tissue_risk_adult,
+                             gtex_covered = NULL) {
   to  <- as.logical(tumor_only)
   if (isTRUE(to)) return("Safe")
   raw     <- if (is.null(tissues_q3_gt1) || is.na(tissues_q3_gt1)) "" else as.character(tissues_q3_gt1)
   parts   <- trimws(strsplit(raw, "|", fixed = TRUE)[[1]])
   tissues <- sub("=.*", "", parts[nzchar(parts)])
-  if (is.na(to) && length(tissues) == 0L) return("Unavailable")
+  # A NA/empty tissues_q3_gt1 is ambiguous on its own: it means either "gene
+  # absent from the GTEx quant matrix" (true coverage gap — Unavailable) or
+  # "gene present, zero tissues over the Q3 threshold" (a real, clean result —
+  # Safe, regardless of what DE says or whether DE is available at all: zero
+  # tissues over threshold is itself the strongest off-tissue-risk evidence).
+  # gtex_covered disambiguates; callers that don't pass it keep the old
+  # behaviour (treat missing tumor_only as the coverage signal).
+  if (length(tissues) == 0L) {
+    covered <- if (!is.null(gtex_covered)) isTRUE(gtex_covered) else !is.na(to)
+    if (!covered) return("Unavailable")
+    return("Safe")
+  }
   risks   <- risk_map[tissues]
   risks   <- risks[!is.na(risks)]
   if (length(risks) == 0L) return("Acceptable")
