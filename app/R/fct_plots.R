@@ -1,6 +1,20 @@
 ## Overview plotly chart functions.
 ## Depends on: BIOTYPE_COLORS (global.R), plotly (loaded in global.R).
 
+# Shared "no data" placeholder - used when a study has no ribo-seq and/or
+# RNA-seq samples at all, so the plot has nothing meaningful to show, rather
+# than silently rendering an empty axes rectangle.
+empty_plot_msg <- function(text = "No data available") {
+  plot_ly() %>%
+    layout(
+      annotations = list(list(text = text, x = 0.5, y = 0.5,
+                              xref = "paper", yref = "paper",
+                              showarrow = FALSE, font = list(size = 13, color = "#888"))),
+      xaxis = list(visible = FALSE), yaxis = list(visible = FALSE),
+      paper_bgcolor = "white", plot_bgcolor = "white"
+    ) %>% config(displayModeBar = FALSE)
+}
+
 biotype_bar <- function(df) {
   if (nrow(df) == 0) {
     return(

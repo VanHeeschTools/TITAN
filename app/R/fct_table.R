@@ -1,5 +1,6 @@
 ## Priority table cell HTML builders.
 ## Depends on: biotype_badge_html, spec_badge_html, score_bar_html, pct_bar_html (fct_scoring.R).
+## Depends on: risk_icon_html, gtex_ensg_risk (fct_utils.R); exclude_self_gene (fct_homology.R).
 
 # KPI stat box (Overview / Prioritization stat rows). Built as plain HTML
 # rather than bslib::value_box()'s showcase/showcase_layout mechanism -
@@ -135,4 +136,47 @@ make_child_rows_html <- function(orfs_df) {
     '<td></td><td></td><td></td><td></td><td></td><td></td>',
     '</tr>'
   )
+}
+
+# Peptide tab's "Homology (0/1mm)" cell — one row at a time (this table is
+# scoped to just the currently-selected candidates, so it's small; not worth
+# the vectorisation effort the priority-table cells need at thousands of
+# rows). `cache` is pep_xreact_cache_rv()'s list (keyed by peptide sequence).
+# `rowid` is the row's .pep_row_id, used to route the "Check" click back to
+# the right peptide via data attributes.
+make_pep_homology_cell <- function(peptide, gene_id_clean, gene_name, rowid, cache,
+                                    gtex_mat, gtex_meta) {
+  hits <- cache[[peptide]]
+  if (is.null(hits)) {
+    return(sprintf(
+      '<a href="#" class="titan-pep-homology-check" data-peptide="%s" data-rowid="%s">Check &#8981;</a>',
+      htmltools::htmlEscape(peptide), htmltools::htmlEscape(rowid)
+    ))
+  }
+  if ("Error" %in% names(hits))
+    return(sprintf('<span class="text-danger small">%s</span>', htmltools::htmlEscape(hits$Error[1L])))
+
+  hits <- exclude_self_gene(hits, gene_id_clean, gene_name)
+  if (is.null(hits) || nrow(hits) == 0L)
+    return('<span class="text-success small"><i class="fa-solid fa-circle-check"></i> None</span>')
+
+  hits  <- hits[order(hits$Mismatches, hits$Gene_sym), ]
+  icons <- vapply(hits$ENSG, function(e) risk_icon_html(gtex_ensg_risk(e, gtex_mat, gtex_meta)), character(1))
+  items <- sprintf('%s (%dmm)%s', hits$Gene_sym, hits$Mismatches, icons)
+
+  # "first item + N more..." toggle, same convention as make_peptide_cell()'s
+  # .titan-pep-more/.titan-pep-less/.titan-pep-extra (tbl_peptide's own JS
+  # callback binds the same handler, scoped to #tbl_peptide).
+  out <- items[1L]
+  if (length(items) > 1L) {
+    out <- paste0(
+      out,
+      ' <span class="titan-pep-more">and ', length(items) - 1L, ' more...</span>',
+      '<span class="titan-pep-less" style="display:none">less</span>',
+      '<div class="titan-pep-extra" style="display:none; margin-top:3px; line-height:1.7">',
+      paste(items[-1L], collapse = "<br>"),
+      '</div>'
+    )
+  }
+  out
 }

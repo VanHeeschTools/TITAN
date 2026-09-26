@@ -253,6 +253,121 @@ render_protein_seq_html <- function(seq, pep_list, pep_info = list()) {
               '</div>'))
 }
 
+## Depends on: match_peptides() (this file); gencode_orf_tbl, gencode_kmer_index
+## (global.R, static reference objects, safe to reference directly).
+##
+## Runs the full peptide<->ORF matching pipeline shared by the manual EXPLORE
+## TARGETS click and the automatic bundled-peptide matching path (Study
+## Library studies without precomputed_pep_hits): in-house match_peptides()
+## (unless `hits` is pre-supplied - the precomputed-hits path), ORF-annotated-
+## priority collapse, Gencode cross-match, then join to `meta` (one row per
+## matched_peptide, MS metadata). Previously this ~80-line body was
+## copy-pasted verbatim between the two call sites in app.R; extracted here so
+## a third call site (auto-matching when no precomputed hits exist) didn't
+## mean a third copy.
+##
+## `progress`, if given, is called as progress(value, detail) at each stage -
+## callers wrap this in their own withProgress() and pass e.g.
+## function(v, d) setProgress(v, detail = d).
+## `canon_hits`, if supplied, is dat$precomputed_canonical_pep_hits (from
+## prepare_titan_inputs.R's paths.reference_proteome) - the caller decides
+## whether it's valid for this peptide set (same fingerprint check already
+## used for `hits`) and passes NULL when it isn't.
+build_pep_orf_matches <- function(peptides, meta, orf_tbl, hits = NULL,
+                                   progress = function(value, detail) NULL,
+                                   canon_hits = NULL) {
+  if (is.null(hits)) {
+    progress(0.3, "Matching peptides to ORFs…")
+    hits <- match_peptides(peptides, orf_tbl)
+    # For peptides that match an ORF-annotated (canonical) entry AND non-canonical
+    # entries, discard the non-canonical hits — they are canonical peptide evidence.
+    if (!is.null(hits) && nrow(hits) > 0L) {
+      hits <- hits %>%
+        group_by(matched_peptide) %>%
+        filter(
+          if (any(orf_biotype_single == "ORF-annotated", na.rm = TRUE))
+            orf_biotype_single == "ORF-annotated"
+          else
+            TRUE
+        ) %>%
+        ungroup()
+    }
+  }
+
+  # Gencode cross-match: annotate in-house hits and add Gencode-only rows
+  progress(0.6, "Running Gencode cross-match…")
+  if (!is.null(gencode_orf_tbl)) {
+    gc_all <- match_peptides(peptides, gencode_orf_tbl, index = gencode_kmer_index)
+    if (!is.null(gc_all) && nrow(gc_all) > 0L) {
+      # Case (a): build per-peptide summary of matching Gencode ORFs
+      gc_summary <- gc_all %>%
+        group_by(matched_peptide) %>%
+        summarise(
+          gencode_match_ids = paste(
+            sprintf("%s (%s, %s)", orf_id, gene_name, orf_biotype_single),
+            collapse = "; "
+          ),
+          .groups = "drop"
+        )
+      if (!is.null(hits) && nrow(hits) > 0L) {
+        hits <- hits %>%
+          left_join(gc_summary, by = "matched_peptide") %>%
+          mutate(gencode_match_ids = replace_na(gencode_match_ids, ""),
+                 gencode_only       = FALSE)
+        # Case (b): peptides with Gencode hits but no in-house hit → new rows
+        gc_only_peps <- setdiff(unique(gc_all$matched_peptide), unique(hits$matched_peptide))
+      } else {
+        gc_only_peps <- unique(gc_all$matched_peptide)
+      }
+      if (length(gc_only_peps) > 0L) {
+        gc_only_rows <- gc_all %>%
+          filter(matched_peptide %in% gc_only_peps) %>%
+          mutate(gencode_match_ids = "", gencode_only = TRUE)
+        # Populate gene-level expression / GTEx / TCGA metrics by borrowing from
+        # any in-house ORF of the same gene (these columns are gene-level, not ORF-level)
+        expr_cols <- intersect(
+          c("target_expression_num_samples", "target_expression_pct_samples",
+            "target_expression_median_TPM", "target_expression_max_TPM",
+            "GTEX_max_median_TPM", "GTEX_median_TPM", "GTEX_DE_sig_in_all",
+            "GTEX_tumor_only", "GTEX_tumor_enriched", "GTEX_tissues_q3_gt1",
+            "TCGA_tumor_num_samples", "TCGA_tumor_pct_samples",
+            "TCGA_tumor_median_TPM", "TCGA_tumor_max_TPM",
+            "TCGA_normal_num_samples", "TCGA_normal_pct_samples",
+            "TCGA_normal_median_TPM", "TCGA_normal_max_TPM"),
+          colnames(orf_tbl)
+        )
+        gene_expr <- orf_tbl %>%
+          group_by(gene_id_clean) %>%
+          summarise(across(all_of(expr_cols), first), .groups = "drop")
+        gc_only_rows <- gc_only_rows %>%
+          left_join(gene_expr, by = "gene_id_clean")
+        hits <- bind_rows(hits, gc_only_rows)
+      }
+    } else if (!is.null(hits) && nrow(hits) > 0L) {
+      hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
+    }
+  } else if (!is.null(hits) && nrow(hits) > 0L) {
+    hits <- hits %>% mutate(gencode_match_ids = "", gencode_only = FALSE)
+  }
+
+  # Reference-proteome cross-match (canonical-only genes with no candidate
+  # ORF at all): only for peptides that still have no match at this point.
+  if (!is.null(canon_hits)) {
+    residual_peps <- if (!is.null(hits) && nrow(hits) > 0L)
+      setdiff(peptides, unique(hits$matched_peptide)) else peptides
+    canon_rows <- build_canonical_only_rows(residual_peps, canon_hits)
+    if (!is.null(canon_rows) && nrow(canon_rows) > 0L)
+      hits <- bind_rows(hits, canon_rows)
+  }
+
+  progress(0.9, "Joining MS metadata…")
+  if (!is.null(hits) && nrow(hits) > 0L) {
+    left_join(hits, meta, by = "matched_peptide")
+  } else {
+    data.frame(orf_id = character(0), matched_peptide = character(0))
+  }
+}
+
 ## Builds ORF-shaped rows for peptides that only matched a canonical reference
 ## protein (dat$precomputed_canonical_pep_hits, from prepare_titan_inputs.R's
 ## paths.reference_proteome) — the gene has no candidate ORF at all, so there
